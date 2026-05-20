@@ -1,0 +1,28 @@
+dataset:
+  input_root: datasets/raw/shapeNet/hdf5_data
+  output_root: datasets/processed/partnet_pt
+  split_dir: datasets/raw/shapeNet/hdf5_data
+  source_format: auto   # auto | h5 | ply
+
+sampling:
+  num_points: 2048
+  allow_repeat_when_few_points: true
+
+normalize:
+  enabled: true
+  method: unit_sphere   # unit_sphere | bounding_box
+  save_center_scale: true
+
+labels:
+  scheme: global_50
+  num_parts: 50
+
+runtime:
+  seed: 42
+  max_samples: null
+  overwrite: false
+
+output:
+  sample_format: npz    # npz | ply
+  save_stats: true
+  save_meta: true

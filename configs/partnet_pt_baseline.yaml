@@ -1,0 +1,33 @@
+experiment:
+  name: exp_pt_partnet_baseline
+  output_dir: experiments/exp_pt_partnet_baseline
+
+dataset:
+  processed_root: datasets/processed/partnet_pt
+  split_dir: datasets/splits
+  train_split: train.txt
+  val_split: val.txt
+  test_split: test.txt
+  num_points: 2048
+  num_parts: 50
+
+training:
+  batch_size: 8
+  num_workers: 4
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 10
+  save_every: 5
+
+model:
+  input_dim: 3
+  hidden_dim: 128
+  num_layers: 4
+  num_heads: 4
+  dropout: 0.1
+
+loss:
+  ignore_index: -1

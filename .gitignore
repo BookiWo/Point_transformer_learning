@@ -1,0 +1,36 @@
+.venv/
+.vscode/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Python packaging / build artifacts
+build/
+dist/
+*.egg-info/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Project outputs and run artifacts
+checkpoints/
+logs/
+outputs/
+experiments/
+
+# Generated or large dataset artifacts
+datasets/processed/
+datasets/raw/
+
+# Model and export files
+*.pt
+*.pth
+*.ckpt
+*.onnx

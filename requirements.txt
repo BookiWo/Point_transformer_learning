@@ -1,0 +1,7 @@
+numpy>=1.24
+PyYAML>=6.0
+tqdm>=4.66
+h5py>=3.10
+open3d>=0.18
+torch>=2.2
+pytest>=8.0
