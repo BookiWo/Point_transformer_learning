@@ -1,0 +1,21 @@
+{
+  "env": {
+    "CONDA_DEFAULT_ENV": "pt_partnet",
+    "PATH": "/home/laplace37/miniconda3/envs/pt_partnet/bin:/home/laplace37/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  },
+  "permissions": {
+    "allow": [
+      "bash(python *)",
+      "bash(pytest *)",
+      "bash(tensorboard *)",
+      "bash(conda *)",
+      "bash(pip *)",
+      "bash(ls *)",
+      "bash(cat *)",
+      "bash(head *)",
+      "bash(wc *)",
+      "bash(find *)",
+      "bash(git *)"
+    ]
+  }
+}

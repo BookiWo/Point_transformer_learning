@@ -1,0 +1,40 @@
+# AutoDL 训练配置 (24GB GPU, 4090/3090)
+# 使用方式: python train.py --config configs/partnet_pt_autodl.yaml
+
+experiment:
+  name: exp_pt_partnet_autodl
+  output_dir: /root/autodl-tmp/experiments/exp_pt_partnet_autodl
+
+dataset:
+  processed_root: /root/autodl-tmp/point_transformer_partnet/datasets/processed/partnet_pt
+  split_dir: /root/autodl-tmp/point_transformer_partnet/datasets/splits
+  train_split: train.txt
+  val_split: val.txt
+  test_split: test.txt
+  num_points: 2048
+  num_parts: 50
+
+training:
+  batch_size: 12          # 24GB 显存可用大 batch
+  num_workers: 8          # 多线程数据加载
+  epochs: 60              # 云 GPU 可跑更多轮
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 20        # 减少日志频率（steps 更多）
+  save_every: 5           # 每 5 epoch 存一次
+
+logging:
+  tensorboard: true
+  tensorboard_dir: /root/autodl-tmp/experiments/exp_pt_partnet_autodl/tensorboard
+
+model:
+  input_dim: 3
+  hidden_dim: 192         # 24GB 显存可用更大维度
+  num_layers: 8           # stage_depth=2，每层 2 block
+  num_heads: 6
+  dropout: 0.1
+
+loss:
+  ignore_index: -1

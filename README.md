@@ -35,7 +35,14 @@ python train.py --config configs/partnet_pt_baseline.yaml
 Outputs:
 
 - Logs: `experiments/exp_pt_partnet_baseline/train_log.txt`
+- TensorBoard: `experiments/exp_pt_partnet_baseline/tensorboard/`
 - Checkpoints: `experiments/exp_pt_partnet_baseline/checkpoints/`
+
+查看可视化：
+
+```bash
+tensorboard --logdir experiments/exp_pt_partnet_baseline/tensorboard
+```
 
 ## 4) Evaluate
 

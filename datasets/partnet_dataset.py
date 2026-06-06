@@ -30,9 +30,9 @@ class PartNetDataset(Dataset):
             rel_paths = [line.strip() for line in f.readlines() if line.strip()]
 
         self.sample_paths: List[Path] = [(self.processed_root / rel).resolve() for rel in rel_paths]
-        missing = [p for p in self.sample_paths if not p.exists()]
-        if missing:
-            raise FileNotFoundError(f"Found missing sample files. Example: {missing[0]}")
+        if not self.sample_paths:
+            raise FileNotFoundError(f"No samples found in split file: {self.split_file}")
+        # Skip per-file existence check on WSL (slow DrvFs); trust the split file.
 
     def __len__(self) -> int:
         return len(self.sample_paths)

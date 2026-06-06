@@ -12,15 +12,19 @@ dataset:
   num_parts: 50
 
 training:
-  batch_size: 8
-  num_workers: 4
+  batch_size: 2
+  num_workers: 0
   epochs: 30
   lr: 0.001
   weight_decay: 0.0001
   seed: 42
   device: auto
   log_interval: 10
-  save_every: 5
+  save_every: 1
+
+logging:
+  tensorboard: true
+  tensorboard_dir: experiments/exp_pt_partnet_baseline/tensorboard
 
 model:
   input_dim: 3
