@@ -1,4 +1,4 @@
-# AutoDL 训练配置 (24GB GPU, 4090/3090)
+# AutoDL 训练配置 (RTX 5090 / 32GB)
 # 使用方式: python train.py --config configs/partnet_pt_autodl.yaml
 
 experiment:
@@ -6,8 +6,9 @@ experiment:
   output_dir: /root/autodl-tmp/experiments/exp_pt_partnet_autodl
 
 dataset:
-  processed_root: /root/autodl-tmp/point_transformer_partnet/datasets/processed/partnet_pt
-  split_dir: /root/autodl-tmp/point_transformer_partnet/datasets/splits
+  # 以下路径以仓库根目录为基准，clone 到 /root/autodl-tmp/ 后即生效
+  processed_root: /root/autodl-tmp/Point_transformer_learning/datasets/processed/partnet_pt
+  split_dir: /root/autodl-tmp/Point_transformer_learning/datasets/splits
   train_split: train.txt
   val_split: val.txt
   test_split: test.txt
@@ -15,15 +16,15 @@ dataset:
   num_parts: 50
 
 training:
-  batch_size: 12          # 24GB 显存可用大 batch
-  num_workers: 8          # 多线程数据加载
-  epochs: 60              # 云 GPU 可跑更多轮
+  batch_size: 24             # 32GB 显存可跑更大 batch
+  num_workers: 12            # 匹配 25 核 CPU
+  epochs: 80                 # 云上多跑几轮
   lr: 0.001
   weight_decay: 0.0001
   seed: 42
   device: auto
-  log_interval: 20        # 减少日志频率（steps 更多）
-  save_every: 5           # 每 5 epoch 存一次
+  log_interval: 50           # batch 大了 step 少了，调大间隔
+  save_every: 5
 
 logging:
   tensorboard: true
@@ -31,9 +32,9 @@ logging:
 
 model:
   input_dim: 3
-  hidden_dim: 192         # 24GB 显存可用更大维度
-  num_layers: 8           # stage_depth=2，每层 2 block
-  num_heads: 6
+  hidden_dim: 256            # 32GB 显存用更大特征维度
+  num_layers: 8              # stage_depth=2，每层 2 block
+  num_heads: 8
   dropout: 0.1
 
 loss:
