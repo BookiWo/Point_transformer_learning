@@ -1,0 +1,48 @@
+# AutoDL 训练配置 — Point Transformer V2 (RTX 5090 / 32GB)
+# 使用方式: python train.py --config configs/partnet_pt_v2_autodl.yaml
+#
+# V2 improvements over V1 AutoDL:
+#   Grouped Vector Attention (GVA)     → 防过拟合, 更利于大数据训练
+#   Position Encoding Multiplier       → 几何感知增强
+#   Grid Pooling                       → 更快, 空间对齐更好
+
+experiment:
+  name: exp_pt_partnet_v2_autodl
+  output_dir: /root/autodl-tmp/experiments/exp_pt_partnet_v2_autodl
+
+dataset:
+  processed_root: /root/autodl-tmp/Point_transformer_learning/datasets/processed/partnet_pt
+  split_dir: /root/autodl-tmp/Point_transformer_learning/datasets/splits
+  train_split: train.txt
+  val_split: val.txt
+  test_split: test.txt
+  num_points: 2048
+  num_parts: 50
+
+training:
+  batch_size: 20             # V2 略省显存，稍低于 V1 的 24
+  num_workers: 12
+  epochs: 80
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 40
+  save_every: 5
+
+logging:
+  tensorboard: true
+  tensorboard_dir: /root/autodl-tmp/experiments/exp_pt_partnet_v2_autodl/tensorboard
+
+model:
+  input_dim: 3
+  hidden_dim: 256            # 大模型, 匹配 32GB 显存
+  num_layers: 8
+  num_heads: 8
+  num_groups: 2              # GVA: groups per head
+  dropout: 0.1
+  pe_multiplier: true        # multiplicative position encoding
+  grid_cell_size: 0.05       # calibrated for PartNet scale (2048→~1000→~500→~200)
+
+loss:
+  ignore_index: -1

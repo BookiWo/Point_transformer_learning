@@ -1,0 +1,45 @@
+# Point Transformer V2 — 本地训练 (RTX 4060 Laptop / 8GB VRAM)
+# 使用方式: python train.py --config configs/partnet_pt_v2_local.yaml
+#
+# 与 baseline V1 对比: GVA + PE Multiplier + Grid Pooling 三大改进
+
+experiment:
+  name: exp_pt_partnet_v2_local
+  output_dir: experiments/exp_pt_partnet_v2_local
+
+dataset:
+  processed_root: datasets/processed/partnet_pt
+  split_dir: datasets/splits
+  train_split: train.txt
+  val_split: val.txt
+  test_split: test.txt
+  num_points: 2048
+  num_parts: 50
+
+training:
+  batch_size: 2             # 8GB 显存限制
+  num_workers: 0            # WSL 跨文件系统建议 0
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 10
+  save_every: 1
+
+logging:
+  tensorboard: true
+  tensorboard_dir: experiments/exp_pt_partnet_v2_local/tensorboard
+
+model:
+  input_dim: 3
+  hidden_dim: 128            # 小显存用 128
+  num_layers: 4
+  num_heads: 4
+  num_groups: 2              # GVA: 组内共享, 组间独立
+  dropout: 0.1
+  pe_multiplier: true        # 乘法位置编码
+  grid_cell_size: 0.05       # Grid Pooling: 2048→~1000→~500→~200
+
+loss:
+  ignore_index: -1

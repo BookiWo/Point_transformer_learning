@@ -34,3 +34,6 @@ datasets/raw/
 *.pth
 *.ckpt
 *.onnx
+
+# AutoDL data package (large, uploaded separately)
+autodl_data_package.tar.gz

@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from datasets.partnet_dataset import PartNetDataset  # type: ignore[import-not-found]
 from models.point_transformer_seg import PointTransformerSeg  # type: ignore[import-not-found]
+from models.point_transformer_v2_seg import PointTransformerV2Seg  # type: ignore[import-not-found]
 from utils.metrics.segmentation_metrics import compute_segmentation_metrics  # type: ignore[import-not-found]
 from utils.visualization.pointcloud_viz import label_to_color, save_xyzrgb_ply  # type: ignore[import-not-found]
 
@@ -46,14 +47,28 @@ def main() -> None:
     )
     loader = DataLoader(ds, batch_size=8, shuffle=False, num_workers=2)
 
-    model = PointTransformerSeg(
-        input_dim=int(cfg["model"].get("input_dim", 3)),
-        hidden_dim=int(cfg["model"].get("hidden_dim", 128)),
-        num_layers=int(cfg["model"].get("num_layers", 4)),
-        num_heads=int(cfg["model"].get("num_heads", 4)),
-        num_parts=int(cfg["dataset"]["num_parts"]),
-        dropout=float(cfg["model"].get("dropout", 0.1)),
-    ).to(device)
+    mcfg = cfg["model"]
+    if "num_groups" in mcfg or "pe_multiplier" in mcfg or "grid_cell_size" in mcfg:
+        model = PointTransformerV2Seg(
+            input_dim=int(mcfg.get("input_dim", 3)),
+            hidden_dim=int(mcfg.get("hidden_dim", 128)),
+            num_layers=int(mcfg.get("num_layers", 4)),
+            num_heads=int(mcfg.get("num_heads", 4)),
+            num_parts=int(cfg["dataset"]["num_parts"]),
+            num_groups=int(mcfg.get("num_groups", 2)),
+            dropout=float(mcfg.get("dropout", 0.1)),
+            pe_multiplier=bool(mcfg.get("pe_multiplier", True)),
+            grid_cell_size=float(mcfg.get("grid_cell_size", 0.04)),
+        ).to(device)
+    else:
+        model = PointTransformerSeg(
+            input_dim=int(mcfg.get("input_dim", 3)),
+            hidden_dim=int(mcfg.get("hidden_dim", 128)),
+            num_layers=int(mcfg.get("num_layers", 4)),
+            num_heads=int(mcfg.get("num_heads", 4)),
+            num_parts=int(cfg["dataset"]["num_parts"]),
+            dropout=float(mcfg.get("dropout", 0.1)),
+        ).to(device)
 
     ckpt = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(ckpt["model"])

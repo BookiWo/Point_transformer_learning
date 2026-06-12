@@ -1,0 +1,49 @@
+# Point Transformer V2 — PartNet Segmentation Baseline
+#
+# Key improvements over V1:
+#   1. Grouped Vector Attention (num_groups=2) — prevents overfitting
+#   2. Position Encoding Multiplier (pe_multiplier=true) — multiplicative pos modulation
+#   3. Grid Pooling (grid_cell_size=0.04) — faster than FPS+kNN, better spatial alignment
+#
+# Expected improvements: +2~5 mIoU, ~1.5× faster pooling, lower memory footprint.
+
+experiment:
+  name: exp_pt_partnet_v2_baseline
+  output_dir: experiments/exp_pt_partnet_v2_baseline
+
+dataset:
+  processed_root: datasets/processed/partnet_pt
+  split_dir: datasets/splits
+  train_split: train.txt
+  val_split: val.txt
+  test_split: test.txt
+  num_points: 2048
+  num_parts: 50
+
+training:
+  batch_size: 2
+  num_workers: 0
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 10
+  save_every: 1
+
+logging:
+  tensorboard: true
+  tensorboard_dir: experiments/exp_pt_partnet_v2_baseline/tensorboard
+
+model:
+  input_dim: 3
+  hidden_dim: 128
+  num_layers: 4
+  num_heads: 4
+  num_groups: 2         # GVA: groups per head (1=scalar like MHA, head_dim=full VA)
+  dropout: 0.1
+  pe_multiplier: true   # multiplicative position encoding
+  grid_cell_size: 0.05  # grid cell size: 2048→~1067→~500→~200 (doubled per stage)
+
+loss:
+  ignore_index: -1
