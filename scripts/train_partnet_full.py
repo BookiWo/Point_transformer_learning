@@ -97,8 +97,18 @@ def main():
         if args.max_val > 0:
             val_ds = Subset(val_ds, list(range(min(args.max_val, len(val_ds)))))
 
-        num_parts = train_ds.dataset.num_parts if hasattr(train_ds, 'dataset') else train_ds[0]["num_parts"]
-        print(f"Samples: train={len(train_ds)}, val={len(val_ds)}, parts={num_parts}")
+        # Scan ALL training samples for max label (different samples may use
+        # different annotation levels → variable num_parts per sample).
+        max_label = 0
+        raw_train = train_ds.dataset if hasattr(train_ds, 'dataset') else train_ds
+        for i in range(len(raw_train)):
+            lbl = raw_train[i]["labels"]
+            if hasattr(lbl, 'max'):
+                max_label = max(max_label, int(lbl.max()))
+            else:
+                max_label = max(max_label, int(lbl.max()))
+        num_parts = max_label + 1
+        print(f"Samples: train={len(train_ds)}, val={len(val_ds)}, parts={num_parts} (max_label={max_label})")
 
         train_loader = DataLoader(train_ds, batch_size=tcfg["batch_size"], shuffle=True,
                                   num_workers=tcfg.get("num_workers", 0), pin_memory=False)
