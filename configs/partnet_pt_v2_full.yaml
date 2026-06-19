@@ -1,0 +1,40 @@
+# Point Transformer V2 — Full PartNet Per-Category Training
+#
+# Each category trains its own model with its own part label space.
+# Average mIoU reported across all categories.
+
+experiment:
+  name: exp_pt_partnet_v2_full
+  output_dir: experiments/exp_pt_partnet_v2_full
+
+dataset:
+  processed_root: datasets/processed/partnet_full
+
+training:
+  batch_size: 8
+  num_workers: 4
+  epochs: 50
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 30
+  save_every: 10
+  grad_accum: 1
+
+logging:
+  tensorboard: true
+  tensorboard_dir: experiments/exp_pt_partnet_v2_full/tensorboard
+
+model:
+  input_dim: 3
+  hidden_dim: 128
+  num_layers: 4
+  num_heads: 4
+  num_groups: 2
+  dropout: 0.1
+  pe_multiplier: true
+  grid_cell_size: 0.05
+
+loss:
+  ignore_index: -1
