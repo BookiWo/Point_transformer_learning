@@ -1,0 +1,43 @@
+# Point Transformer V2 — Unified PartNet Training
+#
+# ONE model trained on ALL 50 categories simultaneously.
+# Labels are remapped to a global space (shared backbone, shared head).
+# Uses CosineAnnealingWarmRestarts to prevent lr from decaying too early.
+
+experiment:
+  name: exp_pt_partnet_v2_unified
+  output_dir: experiments/exp_pt_partnet_v2_unified
+
+dataset:
+  processed_root: datasets/processed/partnet_full
+  num_points: 2048
+
+training:
+  batch_size: 16
+  num_workers: 4
+  epochs: 100
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 200
+  save_every: 10
+  grad_accum: 1
+
+logging:
+  tensorboard: false
+  tensorboard_dir: experiments/exp_pt_partnet_v2_unified/tensorboard
+
+model:
+  model_type: ptv2
+  input_dim: 3
+  hidden_dim: 192
+  num_layers: 6
+  num_heads: 6
+  num_groups: 2
+  dropout: 0.1
+  pe_multiplier: true
+  grid_cell_size: 0.05
+
+loss:
+  ignore_index: -1

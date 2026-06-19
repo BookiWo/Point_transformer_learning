@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from datasets.partnet_dataset import PartNetDataset  # type: ignore[import-not-found]
 from models.point_transformer_seg import PointTransformerSeg  # type: ignore[import-not-found]
 from models.point_transformer_v2_seg import PointTransformerV2Seg  # type: ignore[import-not-found]
+from models.point_transformer_v3_seg import PointTransformerV3Seg  # type: ignore[import-not-found]
 from utils.metrics.segmentation_metrics import compute_segmentation_metrics  # type: ignore[import-not-found]
 from utils.visualization.pointcloud_viz import label_to_color, save_xyzrgb_ply  # type: ignore[import-not-found]
 
@@ -48,7 +49,29 @@ def main() -> None:
     loader = DataLoader(ds, batch_size=8, shuffle=False, num_workers=2)
 
     mcfg = cfg["model"]
-    if "num_groups" in mcfg or "pe_multiplier" in mcfg or "grid_cell_size" in mcfg:
+    if mcfg.get("model_type") == "ptv3":
+        model = PointTransformerV3Seg(
+            in_channels=int(mcfg.get("in_channels", 3)),
+            num_parts=int(cfg["dataset"]["num_parts"]),
+            enc_channels=list(mcfg.get("enc_channels", [32, 64, 128, 256, 512])),
+            enc_depths=list(mcfg.get("enc_depths", [2, 2, 2, 2, 2])),
+            enc_num_head=list(mcfg.get("enc_num_head", [2, 4, 8, 16, 32])),
+            enc_patch_size=list(mcfg.get("enc_patch_size", [1024]*5)),
+            dec_depths=list(mcfg.get("dec_depths", [2, 2, 2, 2])),
+            dec_channels=list(mcfg.get("dec_channels", [64, 64, 128, 256])),
+            dec_num_head=list(mcfg.get("dec_num_head", [4, 4, 8, 16])),
+            dec_patch_size=list(mcfg.get("dec_patch_size", [1024]*4)),
+            stride=list(mcfg.get("stride", [2, 2, 2, 2])),
+            mlp_ratio=float(mcfg.get("mlp_ratio", 2.0)),
+            attn_drop=float(mcfg.get("attn_drop", 0.0)),
+            proj_drop=float(mcfg.get("proj_drop", 0.1)),
+            drop_path=float(mcfg.get("drop_path", 0.1)),
+            enable_rpe=bool(mcfg.get("enable_rpe", False)),
+            grid_size=float(mcfg.get("grid_size", 0.05)),
+            order=mcfg.get("order", ("z", "z-trans")),
+            shuffle_orders=bool(mcfg.get("shuffle_orders", True)),
+        ).to(device)
+    elif "num_groups" in mcfg or "pe_multiplier" in mcfg or "grid_cell_size" in mcfg:
         model = PointTransformerV2Seg(
             input_dim=int(mcfg.get("input_dim", 3)),
             hidden_dim=int(mcfg.get("hidden_dim", 128)),

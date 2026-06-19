@@ -1,0 +1,71 @@
+# Point Transformer V3 — Original architecture (spconv CPE, no FlashAttention)
+#
+# Uses serialized attention (Z-order/Hilbert) with spconv.SubMConv3d CPE.
+# Reference: Wu et al., "Point Transformer V3: Simpler, Faster, Stronger", CVPR 2024
+#
+# Dependencies: spconv, torch_scatter, addict, timm
+# FlashAttention disabled (optional, requires CUDA >= 11.6 + compilation).
+#
+# Adapted for PartNet per-category segmentation.
+
+experiment:
+  name: exp_pt_partnet_v3
+  output_dir: experiments/exp_pt_partnet_v3
+
+dataset:
+  processed_root: datasets/processed/partnet_full
+  num_points: 2048
+
+training:
+  batch_size: 4
+  num_workers: 4
+  epochs: 50
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 30
+  save_every: 10
+  grad_accum: 2
+
+logging:
+  tensorboard: true
+  tensorboard_dir: experiments/exp_pt_partnet_v3/tensorboard
+
+model:
+  # Model type selector
+  model_type: ptv3
+
+  # Input
+  in_channels: 3
+  num_parts: 50  # auto-detected per category
+
+  # PTv3 specific
+  grid_size: 0.05
+
+  # Encoder stages (5 stages, stride between stages)
+  stride: [2, 2, 2, 2]
+  enc_depths: [2, 2, 2, 2, 2]
+  enc_channels: [32, 64, 128, 256, 512]
+  enc_num_head: [2, 4, 8, 16, 32]
+  enc_patch_size: [1024, 1024, 1024, 1024, 1024]
+
+  # Decoder stages (4 stages)
+  dec_depths: [2, 2, 2, 2]
+  dec_channels: [64, 64, 128, 256]
+  dec_num_head: [4, 4, 8, 16]
+  dec_patch_size: [1024, 1024, 1024, 1024]
+
+  # Shared
+  mlp_ratio: 2.0
+  attn_drop: 0.0
+  proj_drop: 0.1
+  drop_path: 0.1
+  enable_rpe: false
+
+  # Serialization order
+  order: ["z", "z-trans"]
+  shuffle_orders: true
+
+loss:
+  ignore_index: -1

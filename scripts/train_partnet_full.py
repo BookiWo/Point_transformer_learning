@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from datasets.partnet_full_dataset import PartNetFullDataset
 from losses.segmentation_loss import SegmentationLoss
 from models.point_transformer_v2_seg import PointTransformerV2Seg
+from models.point_transformer_v3_seg import PointTransformerV3Seg
 from utils.metrics.segmentation_metrics import compute_segmentation_metrics
 
 
@@ -115,18 +116,41 @@ def main():
         val_loader = DataLoader(val_ds, batch_size=tcfg["batch_size"], shuffle=False,
                                 num_workers=tcfg.get("num_workers", 0), pin_memory=False)
 
-        # ---- Model ----
-        model = PointTransformerV2Seg(
-            input_dim=mcfg.get("input_dim", 3),
-            hidden_dim=mcfg["hidden_dim"],
-            num_layers=mcfg["num_layers"],
-            num_heads=mcfg["num_heads"],
-            num_parts=num_parts,
-            num_groups=mcfg.get("num_groups", 2),
-            dropout=mcfg.get("dropout", 0.1),
-            pe_multiplier=mcfg.get("pe_multiplier", True),
-            grid_cell_size=mcfg.get("grid_cell_size", 0.05),
-        ).to(device)
+        # ---- Model (auto V2 / V3) ----
+        if mcfg.get("model_type") == "ptv3":
+            model = PointTransformerV3Seg(
+                in_channels=int(mcfg.get("in_channels", 3)),
+                num_parts=num_parts,
+                enc_channels=list(mcfg.get("enc_channels", [32, 64, 128, 256, 512])),
+                enc_depths=list(mcfg.get("enc_depths", [2, 2, 2, 2, 2])),
+                enc_num_head=list(mcfg.get("enc_num_head", [2, 4, 8, 16, 32])),
+                enc_patch_size=list(mcfg.get("enc_patch_size", [1024]*5)),
+                dec_depths=list(mcfg.get("dec_depths", [2, 2, 2, 2])),
+                dec_channels=list(mcfg.get("dec_channels", [64, 64, 128, 256])),
+                dec_num_head=list(mcfg.get("dec_num_head", [4, 4, 8, 16])),
+                dec_patch_size=list(mcfg.get("dec_patch_size", [1024]*4)),
+                stride=list(mcfg.get("stride", [2, 2, 2, 2])),
+                mlp_ratio=float(mcfg.get("mlp_ratio", 2.0)),
+                attn_drop=float(mcfg.get("attn_drop", 0.0)),
+                proj_drop=float(mcfg.get("proj_drop", 0.1)),
+                drop_path=float(mcfg.get("drop_path", 0.1)),
+                enable_rpe=bool(mcfg.get("enable_rpe", False)),
+                grid_size=float(mcfg.get("grid_size", 0.05)),
+                order=mcfg.get("order", ("z", "z-trans")),
+                shuffle_orders=bool(mcfg.get("shuffle_orders", True)),
+            ).to(device)
+        else:
+            model = PointTransformerV2Seg(
+                input_dim=mcfg.get("input_dim", 3),
+                hidden_dim=mcfg["hidden_dim"],
+                num_layers=mcfg["num_layers"],
+                num_heads=mcfg["num_heads"],
+                num_parts=num_parts,
+                num_groups=mcfg.get("num_groups", 2),
+                dropout=mcfg.get("dropout", 0.1),
+                pe_multiplier=mcfg.get("pe_multiplier", True),
+                grid_cell_size=mcfg.get("grid_cell_size", 0.05),
+            ).to(device)
         print(f"Model: {sum(p.numel() for p in model.parameters()):,} params")
 
         criterion = SegmentationLoss(ignore_index=int(cfg.get("loss", {}).get("ignore_index", -1)))
