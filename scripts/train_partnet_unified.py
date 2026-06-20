@@ -156,6 +156,7 @@ def main():
             dropout=mcfg.get("dropout", 0.1),
             pe_multiplier=mcfg.get("pe_multiplier", True),
             grid_cell_size=mcfg.get("grid_cell_size", 0.05),
+            num_categories=ds_ref.num_categories,
         ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters())
@@ -195,7 +196,10 @@ def main():
             for step, batch in enumerate(train_loader, start=1):
                 pts = batch["points"].to(device)
                 lbl = batch["labels"].to(device)
-                loss = criterion(model(pts), lbl) / grad_accum
+                cls_idx = batch.get("category_idx", None)
+                if cls_idx is not None:
+                    cls_idx = cls_idx.to(device)
+                loss = criterion(model(pts, cls_token=cls_idx), lbl) / grad_accum
                 loss.backward()
                 train_losses.append(loss.item())
 
@@ -223,7 +227,10 @@ def main():
                 for batch in val_loader:
                     pts = batch["points"].to(device)
                     lbl = batch["labels"].to(device)
-                    logits = model(pts)
+                    cls_idx = batch.get("category_idx", None)
+                    if cls_idx is not None:
+                        cls_idx = cls_idx.to(device)
+                    logits = model(pts, cls_token=cls_idx)
 
                     # Global metrics
                     m = compute_segmentation_metrics(logits, lbl, global_num_parts, -1)

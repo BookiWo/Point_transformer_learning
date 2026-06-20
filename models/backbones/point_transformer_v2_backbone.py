@@ -27,9 +27,11 @@ class PointTransformerV2Backbone(nn.Module):
         dropout: float = 0.1,
         pe_multiplier: bool = True,
         grid_cell_size: float = 0.04,
+        num_categories: int = 50,
     ) -> None:
         super().__init__()
         stage_depth = max(1, num_layers // 4)
+        self.num_categories = num_categories
 
         # Input projection
         self.input_proj = nn.Sequential(
@@ -83,7 +85,10 @@ class PointTransformerV2Backbone(nn.Module):
         ])
         self.output_norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, points: torch.Tensor) -> torch.Tensor:
+        # Category embedding (injected at bottleneck → decoder knows which shape class)
+        self.cls_embed = nn.Embedding(num_categories, hidden_dim * 8)
+
+    def forward(self, points: torch.Tensor, cls_token: torch.Tensor | None = None) -> torch.Tensor:
         features = self.input_proj(points)
 
         # Stem
@@ -107,6 +112,13 @@ class PointTransformerV2Backbone(nn.Module):
         points4, features4 = self.down3(points3, features3)
         for block in self.bottleneck_blocks:
             features4 = block(features4, points4)
+
+        # Inject class embedding at bottleneck (Pointcept-style cls_token conditioning)
+        if cls_token is not None:
+            cls_feat = self.cls_embed(cls_token)          # (B, hidden*8)
+            # Expand to per-point: (B, 1, hidden*8) → (B, N_bottleneck, hidden*8)
+            cls_feat = cls_feat.unsqueeze(1).expand(-1, features4.shape[1], -1)
+            features4 = features4 + cls_feat
 
         # Decoder
         points3_up, features3_up = self.up3(points4, features4, skip3_points, skip3_features)

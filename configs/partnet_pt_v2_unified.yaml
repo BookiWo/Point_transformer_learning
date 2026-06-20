@@ -1,7 +1,8 @@
-# Point Transformer V2 — Unified PartNet Training
+# Point Transformer V2 — Unified PartNet Training (with cls_token)
 #
 # ONE model trained on ALL 50 categories simultaneously.
 # Labels are remapped to a global space (shared backbone, shared head).
+# cls_token is injected at bottleneck (Pointcept-style category conditioning).
 # Uses CosineAnnealingWarmRestarts to prevent lr from decaying too early.
 
 experiment:
@@ -13,16 +14,16 @@ dataset:
   num_points: 2048
 
 training:
-  batch_size: 16
+  batch_size: 6
   num_workers: 4
-  epochs: 100
+  epochs: 200
   lr: 0.001
   weight_decay: 0.0001
   seed: 42
   device: auto
   log_interval: 200
   save_every: 10
-  grad_accum: 1
+  grad_accum: 3
 
 logging:
   tensorboard: false
@@ -38,6 +39,7 @@ model:
   dropout: 0.1
   pe_multiplier: true
   grid_cell_size: 0.05
+  num_categories: 50
 
 loss:
   ignore_index: -1

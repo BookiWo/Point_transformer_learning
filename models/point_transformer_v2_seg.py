@@ -28,6 +28,7 @@ class PointTransformerV2Seg(nn.Module):
         dropout: float = 0.1,
         pe_multiplier: bool = True,
         grid_cell_size: float = 0.04,
+        num_categories: int = 50,
     ) -> None:
         super().__init__()
         self.backbone = PointTransformerV2Backbone(
@@ -39,9 +40,10 @@ class PointTransformerV2Seg(nn.Module):
             dropout=dropout,
             pe_multiplier=pe_multiplier,
             grid_cell_size=grid_cell_size,
+            num_categories=num_categories,
         )
         self.head = SegmentationHead(hidden_dim, num_parts, dropout=dropout)
 
-    def forward(self, points: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(points)
+    def forward(self, points: torch.Tensor, cls_token: torch.Tensor | None = None) -> torch.Tensor:
+        features = self.backbone(points, cls_token=cls_token)
         return self.head(features)

@@ -87,14 +87,19 @@ class PartNetUnifiedDataset(Dataset):
         print(f"[Unified] {len(self.categories)} categories, "
               f"{self.global_num_parts} total parts")
 
+        # Category name → index mapping (for cls_token)
+        self.category_to_idx = {cat: i for i, cat in enumerate(self.categories)}
+        self.num_categories = len(self.categories)
+
         # Collect all sample files
-        self.samples: list[tuple[Path, str, int, int]] = []  # (path, category, K, offset)
+        self.samples: list[tuple[Path, str, int, int, int]] = []  # (path, cat, K, offset, cat_idx)
         for cat in self.categories:
             sd = self.root / cat / "samples" / split
             K = self.cat_num_parts[cat]
-            off = self.cat_offset[cat]
+            offset = self.cat_offset[cat]
+            cat_idx = self.category_to_idx[cat]
             for f in sorted(sd.glob("*.npz")):
-                self.samples.append((f, cat, K, off))
+                self.samples.append((f, cat, K, offset, cat_idx))
 
         print(f"[Unified] {len(self.samples)} samples ({split})")
 
@@ -102,7 +107,7 @@ class PartNetUnifiedDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> dict:
-        path, cat, K, offset = self.samples[idx]
+        path, cat, K, offset, cat_idx = self.samples[idx]
         data = np.load(path, allow_pickle=True)
         points = data["points"].astype(np.float32)
         labels = data["seg_labels"].astype(np.int64)
@@ -127,6 +132,7 @@ class PartNetUnifiedDataset(Dataset):
             "labels": torch.from_numpy(labels),
             "sample_id": f"{cat}_{path.stem}",
             "category": cat,
+            "category_idx": cat_idx,
             "cat_num_parts": K,
             "cat_offset": offset,
         }

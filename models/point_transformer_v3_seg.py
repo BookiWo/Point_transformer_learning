@@ -90,7 +90,7 @@ class PointTransformerV3Seg(nn.Module):
         )
         self.head = SegmentationHead(dec_channels[0], num_parts, dropout=proj_drop)
 
-    def forward(self, points: torch.Tensor) -> torch.Tensor:
+    def forward(self, points: torch.Tensor, cls_token=None, **kwargs) -> torch.Tensor:
         """Forward pass.
 
         Args:
