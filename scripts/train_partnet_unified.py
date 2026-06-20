@@ -107,11 +107,9 @@ def main():
     if args.max_val > 0:
         val_ds = Subset(val_ds, list(range(min(args.max_val, len(val_ds)))))
 
-    global_num_parts = train_ds.dataset.global_num_parts if hasattr(train_ds, 'dataset') else train_ds[0].get("global_num_parts", mcfg.get("num_parts", 100))
-    if hasattr(train_ds, 'dataset'):
-        global_num_parts = train_ds.dataset.global_num_parts
-    else:
-        global_num_parts = train_ds[0].get("global_num_parts", mcfg.get("num_parts", 100))
+    # Unwrap Subset to get the real dataset (for global_num_parts, category offset, etc.)
+    ds_ref = train_ds.dataset if hasattr(train_ds, 'dataset') else train_ds
+    global_num_parts = ds_ref.global_num_parts
 
     print(f"\nSamples: train={len(train_ds):,}, val={len(val_ds):,}")
     print(f"Global parts: {global_num_parts}")

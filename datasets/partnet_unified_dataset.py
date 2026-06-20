@@ -40,7 +40,7 @@ class PartNetUnifiedDataset(Dataset):
         self.num_points = num_points
         self.augment = augment
 
-        # Load pre-computed global label mapping (or build and cache)
+        # Load pre-computed global label mapping (or build from train split)
         cache_path = self.root / "global_labels.json"
         if cache_path.exists():
             with open(cache_path) as f:
@@ -50,19 +50,20 @@ class PartNetUnifiedDataset(Dataset):
             self.cat_offset = mapping["cat_offset"]
             self.global_num_parts = mapping["global_num_parts"]
         else:
-            # Slow path: scan files (only on first run)
+            # Build cache from TRAIN split (scan all files for accurate max_label)
+            train_dir = "train"
             self.categories = sorted(
                 d.name for d in self.root.iterdir()
-                if d.is_dir() and (d / "samples" / split).exists()
+                if d.is_dir() and (d / "samples" / train_dir).exists()
             )
             self.cat_num_parts = {}
             self.cat_offset = {}
             offset = 0
             for cat in self.categories:
-                sd = self.root / cat / "samples" / split
+                sd = self.root / cat / "samples" / train_dir
                 files = sorted(sd.glob("*.npz"))
                 max_label = 0
-                for f in files[:3]:  # sample first 3 files
+                for f in files:  # scan ALL files for correct max_label
                     data = np.load(f, allow_pickle=True)
                     max_label = max(max_label, int(data["seg_labels"].max()))
                 K = max_label + 1
@@ -70,6 +71,18 @@ class PartNetUnifiedDataset(Dataset):
                 self.cat_offset[cat] = offset
                 offset += K
             self.global_num_parts = offset
+            # Save cache so future runs are instant
+            mapping = {
+                "categories": self.categories,
+                "cat_num_parts": self.cat_num_parts,
+                "cat_offset": self.cat_offset,
+                "global_num_parts": self.global_num_parts,
+            }
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w") as f:
+                json.dump(mapping, f, indent=2)
+            print(f"[Unified] Built label cache: {len(self.categories)} categories, "
+                  f"{self.global_num_parts} total parts → {cache_path}")
 
         print(f"[Unified] {len(self.categories)} categories, "
               f"{self.global_num_parts} total parts")
