@@ -25,17 +25,20 @@ def parse_args():
     p.add_argument("--num-points", type=int, default=2048)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-categories", type=int, default=0)
+    p.add_argument("--all-levels", action="store_true",
+                   help="Process ALL annotation levels (default: finest level only)")
     return p.parse_args()
 
 
 def normalize(points: np.ndarray):
-    """Unit-sphere normalize."""
+    """Center only — no unit-sphere scaling (preserve original scale for V3 grid sampling).
+
+    Official Pointcept pipeline only centers point clouds, keeping the original
+    metric scale so that grid_size has a meaningful physical interpretation.
+    """
     center = points.mean(axis=0)
     shifted = points - center
-    scale = np.max(np.linalg.norm(shifted, axis=1))
-    if scale < 1e-12:
-        return shifted, center, 1.0
-    return shifted / scale, center, scale
+    return shifted, center, 1.0
 
 
 def remap_labels(labels: np.ndarray) -> tuple[np.ndarray, int]:
@@ -55,11 +58,40 @@ def main():
     output_root = Path(args.output)
     rng = np.random.default_rng(args.seed)
 
-    categories = sorted(
+    all_categories = sorted(
         d for d in input_root.iterdir() if d.is_dir() and not d.name.startswith(".")
     )
     if args.max_categories > 0:
-        categories = categories[: args.max_categories]
+        all_categories = all_categories[: args.max_categories]
+
+    # Filter to keep only the FINEST annotation level per object type
+    # PartNet provides the same shapes with 1-3 granularity levels (e.g. Chair-1/2/3).
+    # Training on all levels causes label contradiction (same point → different labels).
+    # Official benchmark uses Level 3 (finest).  See PartNet paper Section 5.1.
+    if not args.all_levels:
+        from collections import defaultdict
+        level_groups = defaultdict(list)
+        for d in all_categories:
+            name = d.name
+            parts = name.rsplit("-", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                base, level = parts[0], int(parts[1])
+                level_groups[base].append((level, d))
+            else:
+                level_groups[name].append((0, d))  # single-level categories
+        categories = []
+        for base, entries in sorted(level_groups.items()):
+            entries.sort(key=lambda x: x[0])
+            finest_level, finest_dir = entries[-1]
+            categories.append(finest_dir)
+            if len(entries) > 1:
+                skipped = [f"{base}-{l}" for l, _ in entries[:-1]]
+                print(f"[Filter] {base}: keep {finest_dir.name} (level {finest_level}), "
+                      f"skip {skipped}")
+        print(f"[Filter] {len(all_categories)} → {len(categories)} categories "
+              f"(finest level per object type)")
+    else:
+        categories = all_categories
 
     all_stats = {}
     total_samples = 0
