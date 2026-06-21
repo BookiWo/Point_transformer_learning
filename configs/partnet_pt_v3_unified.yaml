@@ -1,7 +1,8 @@
-# Point Transformer V3 — Unified PartNet Training (ALL 50 categories)
+# Point Transformer V3 — Unified PartNet Training
 #
 # Uses serialized attention + spconv CPE.
-# Conservative settings for 32GB GPU (32M params, batch=4 + grad_accum=4).
+# Hyperparameters from official PTv3 paper (Wu et al., CVPR 2024).
+# No cls_token — V3 is designed for scene-level segmentation.
 
 experiment:
   name: exp_pt_partnet_v3_unified
@@ -32,24 +33,24 @@ model:
   in_channels: 3
   grid_size: 0.05
 
-  # Encoder (5 stages)
+  # Encoder (5 stages) — official PTv3
   stride: [2, 2, 2, 2]
-  enc_depths: [2, 2, 2, 2, 2]
+  enc_depths: [2, 2, 2, 6, 2]
   enc_channels: [32, 64, 128, 256, 512]
   enc_num_head: [2, 4, 8, 16, 32]
   enc_patch_size: [1024, 1024, 1024, 1024, 1024]
 
-  # Decoder (4 stages)
+  # Decoder (4 stages) — official PTv3
   dec_depths: [2, 2, 2, 2]
   dec_channels: [64, 64, 128, 256]
   dec_num_head: [4, 4, 8, 16]
   dec_patch_size: [1024, 1024, 1024, 1024]
 
-  # Shared
-  mlp_ratio: 2.0
+  # Shared — official PTv3 defaults
+  mlp_ratio: 4.0
   attn_drop: 0.0
   proj_drop: 0.1
-  drop_path: 0.1
+  drop_path: 0.3
   enable_rpe: false
 
   # Serialization
