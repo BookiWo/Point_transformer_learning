@@ -150,8 +150,10 @@ class PointTransformerBackbone(nn.Module):
         )
         self.output_norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, points: torch.Tensor) -> torch.Tensor:
-        features = self.input_proj(points)
+    def forward(self, points: torch.Tensor, feat: torch.Tensor | None = None) -> torch.Tensor:
+        if feat is None:
+            feat = points  # backward compatible: use points as features (3-ch)
+        features = self.input_proj(feat)
 
         for block in self.stem_blocks:
             features = block(features, points)

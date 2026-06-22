@@ -21,7 +21,7 @@ class PointTransformerSeg(nn.Module):
         self.backbone = PointTransformerBackbone(input_dim, hidden_dim, num_layers, num_heads, dropout)
         self.head = SegmentationHead(hidden_dim, num_parts, dropout=dropout)
 
-    def forward(self, points: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(points)
+    def forward(self, points: torch.Tensor, feat: torch.Tensor | None = None, cls_token=None, **kwargs) -> torch.Tensor:
+        features = self.backbone(points, feat=feat)
         logits = self.head(features)
         return logits
