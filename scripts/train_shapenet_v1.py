@@ -1,0 +1,205 @@
+"""
+V1 baseline training on ShapeNet Part (official benchmark).
+
+6-channel input (coord + normal), 50 global part classes, 16 categories.
+Evaluates mIoU per official protocol using category2part mapping.
+"""
+
+from __future__ import annotations
+
+import argparse
+import random
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from datasets.shapenet_part_clean_dataset import ShapeNetPartCleanDataset
+from losses.segmentation_loss import SegmentationLoss
+from models.point_transformer_seg import PointTransformerSeg
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", default="configs/shapenet_v1_baseline.yaml")
+    p.add_argument("--epochs", type=int, default=0)
+    p.add_argument("--resume", type=str, default="")
+    return p.parse_args()
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def per_category_miou(logits, labels, cat_indices, dataset):
+    """Official ShapeNet Part eval: per-category mIoU using category2part."""
+    cat_metrics = {}
+    for i in range(logits.shape[0]):
+        cat_name = dataset.categories[cat_indices[i]]
+        part_ids = dataset.category2part[cat_name]  # e.g. [12,13,14,15]
+
+        # Only evaluate parts belonging to this category
+        sample_logits = logits[i, :, part_ids]  # (N, K)
+        pred = sample_logits.argmax(dim=-1)      # (N,)  index into part_ids
+        gt = labels[i]                           # (N,)  global label 0-49
+
+        parts_iou = []
+        for k, pid in enumerate(part_ids):
+            inter = ((pred == k) & (gt == pid)).sum().float()
+            union = ((pred == k) | (gt == pid)).sum().float()
+            if union > 0:
+                parts_iou.append((inter / union).item())
+
+        if parts_iou:
+            if cat_name not in cat_metrics:
+                cat_metrics[cat_name] = []
+            cat_metrics[cat_name].append(np.mean(parts_iou))
+
+    # Average per category
+    cat_mious = {cat: np.mean(ious) for cat, ious in cat_metrics.items()}
+    avg_miou = np.mean(list(cat_mious.values())) if cat_mious else 0.0
+    return avg_miou, cat_mious
+
+
+def main():
+    args = parse_args()
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_seed(int(cfg.get("training", {}).get("seed", 42)))
+
+    mcfg = cfg["model"]
+    tcfg = cfg["training"]
+    dcfg = cfg["dataset"]
+    epochs = args.epochs if args.epochs > 0 else tcfg.get("epochs", 200)
+
+    # Datasets
+    train_ds = ShapeNetPartCleanDataset(dcfg["processed_root"], "train",
+                                        num_points=dcfg.get("num_points", 2048),
+                                        augment=True)
+    val_ds = ShapeNetPartCleanDataset(dcfg["processed_root"], "val",
+                                      num_points=dcfg.get("num_points", 2048),
+                                      augment=False)
+    print(f"Train: {len(train_ds)}, Val: {len(val_ds)}")
+    print(f"Classes: {train_ds.num_classes}, Categories: {train_ds.num_categories}")
+
+    train_loader = DataLoader(train_ds, batch_size=tcfg["batch_size"], shuffle=True,
+                              num_workers=tcfg.get("num_workers", 4), pin_memory=True,
+                              drop_last=True)
+    val_loader = DataLoader(val_ds, batch_size=tcfg["batch_size"], shuffle=False,
+                            num_workers=tcfg.get("num_workers", 2), pin_memory=True)
+
+    # Model
+    model = PointTransformerSeg(
+        input_dim=int(mcfg["input_dim"]),       # 6
+        hidden_dim=mcfg["hidden_dim"],           # 128
+        num_layers=mcfg["num_layers"],           # 4
+        num_heads=mcfg["num_heads"],             # 4
+        num_parts=mcfg["num_parts"],             # 50
+        dropout=float(mcfg.get("dropout", 0.1)),
+    ).to(device)
+    print(f"Model: {sum(p.numel() for p in model.parameters()):,} params")
+
+    criterion = SegmentationLoss(ignore_index=int(cfg.get("loss", {}).get("ignore_index", -1)))
+    opt = torch.optim.AdamW(model.parameters(), lr=tcfg["lr"], weight_decay=tcfg.get("weight_decay", 1e-4))
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        opt, T_0=40, T_mult=1, eta_min=tcfg["lr"] * 0.01
+    )
+    start_epoch, best_miou = 0, -1.0
+
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model"], strict=False)
+        start_epoch = ckpt.get("epoch", 0)
+        best_miou = ckpt.get("miou", -1.0)
+        print(f"Resumed from epoch {start_epoch}, best mIoU={best_miou:.4f}")
+
+    exp_dir = Path(cfg["experiment"]["output_dir"])
+    ckpt_dir = exp_dir / "checkpoints"
+    log_path = exp_dir / "train_log.txt"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    with log_path.open("w") as log_f:
+        for epoch in range(start_epoch + 1, start_epoch + epochs + 1):
+            t0 = time.time()
+            model.train()
+            opt.zero_grad(set_to_none=True)
+            train_losses = []
+
+            for step, batch in enumerate(train_loader, start=1):
+                coord = batch["coord"].to(device)
+                feat = batch["feat"].to(device)
+                lbl = batch["labels"].to(device)
+
+                loss = criterion(model(coord, feat=feat), lbl)
+                loss.backward()
+                train_losses.append(loss.item())
+                opt.step()
+                opt.zero_grad(set_to_none=True)
+
+                if step % tcfg.get("log_interval", 100) == 0:
+                    print(f"  [E{epoch:03d}] step={step:04d} loss={loss.item():.4f}", flush=True)
+
+            scheduler.step()
+
+            # Validation
+            model.eval()
+            val_losses, all_preds, all_labels, all_cats = [], [], [], []
+            with torch.no_grad():
+                for batch in val_loader:
+                    coord = batch["coord"].to(device)
+                    feat = batch["feat"].to(device)
+                    lbl = batch["labels"].to(device)
+                    cat_idx = [train_ds.categories.index(c) for c in batch["category_name"]]
+
+                    logits = model(coord, feat=feat)
+                    loss = criterion(logits, lbl)
+                    val_losses.append(loss.item())
+                    all_preds.append(logits)
+                    all_labels.append(lbl)
+                    all_cats.extend(cat_idx)
+
+            train_loss = np.mean(train_losses) if train_losses else 0
+            val_loss = np.mean(val_losses) if val_losses else 0
+
+            # Per-category mIoU
+            cat_miou, cat_mious = per_category_miou(
+                torch.cat(all_preds), torch.cat(all_labels), all_cats, val_ds
+            )
+
+            elapsed = time.time() - t0
+            summary = (f"[Epoch {epoch:03d}] loss={train_loss:.4f} val_loss={val_loss:.4f} "
+                       f"cat_mIoU={cat_miou:.4f} | {elapsed:.0f}s lr={scheduler.get_last_lr()[0]:.2e}")
+            print(f"  {summary}", flush=True)
+            log_f.write(summary + "\n")
+
+            # Per-category detail every 20 epochs
+            if epoch % 20 == 0 and cat_mious:
+                for cat, miou in sorted(cat_mious.items()):
+                    print(f"    {cat}: {miou:.4f}", flush=True)
+
+            state = {"epoch": epoch, "model": model.state_dict(), "miou": cat_miou}
+            if epoch % max(1, tcfg.get("save_every", 10)) == 0:
+                torch.save(state, ckpt_dir / f"epoch_{epoch:03d}.pth")
+            if cat_miou > best_miou:
+                best_miou = cat_miou
+                torch.save(state, ckpt_dir / "best.pth")
+
+    print(f"\nBest cat_mIoU: {best_miou:.4f}")
+
+
+if __name__ == "__main__":
+    main()

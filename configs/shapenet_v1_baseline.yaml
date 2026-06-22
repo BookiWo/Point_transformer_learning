@@ -1,0 +1,41 @@
+# Point Transformer V1 — ShapeNet Part Baseline
+#
+# Aligned with official PTv1 partseg config:
+#   - 6-channel input (coord + normal)
+#   - 50 global part classes
+#   - 16 shape categories with category2part mapping
+#   - No unit-sphere — centering only (NormalizeCoord)
+#
+# Expected mIoU: ~86% (PTv1 paper, cvpr2021)
+
+experiment:
+  name: exp_shapenet_v1
+  output_dir: experiments/exp_shapenet_v1
+
+dataset:
+  processed_root: datasets/processed/shapenet_part_clean
+  num_points: 2048
+  dataset_type: shapenet_part
+
+model:
+  input_dim: 6          # coord(3) + normal(3)
+  hidden_dim: 128        # original V1 planes start at 32, we use 128
+  num_layers: 4          # 4 stages
+  num_heads: 4           # 128 / 4 = 32 dim per head
+  num_parts: 50          # global part classes
+  dropout: 0.1
+
+training:
+  batch_size: 16
+  num_workers: 4
+  epochs: 200
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 100
+  save_every: 10
+  grad_accum: 1
+
+loss:
+  ignore_index: -1
