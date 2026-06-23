@@ -90,30 +90,37 @@ class PointTransformerV3Seg(nn.Module):
         )
         self.head = SegmentationHead(dec_channels[0], num_parts, dropout=proj_drop)
 
-    def forward(self, points: torch.Tensor, cls_token=None, **kwargs) -> torch.Tensor:
+    def forward(self, points: torch.Tensor, feat: torch.Tensor | None = None,
+                cls_token=None, **kwargs) -> torch.Tensor:
         """Forward pass.
 
         Args:
-            points: (B, N, 3) point coordinates
+            points: (B, N, 3) — 3D coordinates (for grid_coord computation)
+            feat:   (B, N, C) — features (e.g. 6-ch coord+normal)
         Returns:
             logits: (B, N, num_parts)
         """
-        B, N, C = points.shape
+        B, N, _ = points.shape
         device = points.device
 
-        # Flatten to (B*N, C) for PTv3 Point format
-        coord = points.reshape(-1, C)
+        # points are 3D coord; feat can be 6-channel
+        if feat is None:
+            feat = points  # fallback: use xyz as features (3-ch)
+
+        # Flatten to (B*N, ...) for PTv3 Point format
+        coord_flat = points.reshape(-1, 3)  # always 3D for grid_coord
+        feat_flat = feat.reshape(-1, feat.shape[-1])
         batch = torch.arange(B, device=device).repeat_interleave(N)
         offset = torch.arange(1, B + 1, device=device) * N
 
         data_dict = {
-            "coord": coord,
-            "feat": coord,  # use xyz as initial features
+            "coord": coord_flat,
+            "feat": feat_flat,
             "batch": batch,
             "offset": offset,
             "grid_size": torch.tensor(self.grid_size, device=device),
         }
 
-        features = self.backbone(data_dict)  # returns Point; .feat is (B*N, dec_channels[0])
-        features = features.feat.reshape(B, N, -1)
+        point_out = self.backbone(data_dict)  # returns Point; .feat is (B*N, dec_channels[0])
+        features = point_out.feat.reshape(B, N, -1)
         return self.head(features)
