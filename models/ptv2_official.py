@@ -501,6 +501,7 @@ class PointTransformerV2(nn.Module):
     def __init__(self,
                  in_channels=6,
                  num_classes=50,
+                 num_shape_classes=0,      # 0 = no cls_token, 16 = ShapeNet Part
                  patch_embed_depth=1,
                  patch_embed_channels=48,
                  patch_embed_groups=6,
@@ -523,6 +524,7 @@ class PointTransformerV2(nn.Module):
                  unpool_backend="map"):
         super().__init__()
         self.num_classes = num_classes
+        self.num_shape_classes = num_shape_classes
         self.num_stages = len(enc_depths)
 
         self.patch_embed = GVAPatchEmbed(
@@ -570,16 +572,37 @@ class PointTransformerV2(nn.Module):
             nn.Linear(dec_channels[0], num_classes),
         ) if num_classes > 0 else nn.Identity()
 
-    def forward(self, points):
-        """points: [coord, feat, offset] — flat tensors with offsets"""
+        # Optional cls_token injection (official PTv1 partseg approach)
+        if num_shape_classes > 0:
+            self.cls_fc = nn.Sequential(
+                nn.Linear(num_shape_classes, enc_channels[-1]),  # inject at bottleneck dim
+                nn.ReLU(inplace=True),
+            )
+
+    def forward(self, points, cls_token=None):
+        """points: [coord, feat, offset] — flat tensors with offsets
+           cls_token: (B,) optional category indices for ShapeNet Part"""
         points = self.patch_embed(points)
         skips = []
         clusters_list = []
         for i, enc in enumerate(self.enc_stages):
-            skips.append(points)  # save before downsampling
+            skips.append(points)
             points, cluster = enc(points)
             clusters_list.append(cluster)
-        # Reverse for decoder (LIFO)
+
+        # Inject cls_token at bottleneck (official PTv1 partseg approach)
+        if cls_token is not None and self.num_shape_classes > 0:
+            coord, feat, offset = points
+            one_hot = torch.zeros(cls_token.shape[0], self.num_shape_classes,
+                                  device=cls_token.device, dtype=feat.dtype)
+            one_hot.scatter_(1, cls_token.unsqueeze(1), 1.0)
+            cls_feat = self.cls_fc(one_hot)  # (B, enc_channels[-1])
+            # Expand to per-point: map batch → per-point
+            batch = torch.arange(len(offset), device=offset.device, dtype=torch.long).repeat_interleave(
+                torch.diff(offset, prepend=torch.tensor([0], device=offset.device)))
+            feat = feat + cls_feat[batch]
+            points = [coord, feat, offset]
+
         skips = skips[::-1]
         clusters_list = clusters_list[::-1]
         for i, dec in enumerate(self.dec_stages):
@@ -608,6 +631,7 @@ class PointTransformerV2Seg(nn.Module):
         super().__init__()
         self.backbone = PointTransformerV2(
             in_channels=in_channels, num_classes=num_classes,
+            num_shape_classes=num_shape_classes,
             patch_embed_channels=patch_embed_channels,
             patch_embed_groups=patch_embed_groups,
             enc_depths=enc_depths, enc_channels=enc_channels,
@@ -619,13 +643,13 @@ class PointTransformerV2Seg(nn.Module):
             attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
             enable_checkpoint=enable_checkpoint)
 
-    def forward(self, coord, feat):
-        """coord: (B, N, 3), feat: (B, N, C) → logits: (B, N, num_classes)"""
+    def forward(self, coord, feat, cls_token=None):
+        """coord: (B,N,3), feat: (B,N,C), cls_token: (B,) optional
+           → logits: (B,N,num_classes)"""
         B, N = coord.shape[:2]
-        # Flatten to (B*N, ...)
         coord_flat = coord.reshape(-1, 3)
         feat_flat = feat.reshape(-1, feat.shape[-1])
         offset = torch.arange(1, B + 1, device=coord.device, dtype=torch.long) * N
 
-        result = self.backbone([coord_flat, feat_flat, offset])  # (B*N, num_classes)
+        result = self.backbone([coord_flat, feat_flat, offset], cls_token=cls_token)
         return result.reshape(B, N, -1)
