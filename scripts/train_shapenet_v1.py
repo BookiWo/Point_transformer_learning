@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from datasets.shapenet_part_clean_dataset import ShapeNetPartCleanDataset
 from losses.segmentation_loss import SegmentationLoss
 from models.point_transformer_seg import PointTransformerSeg
+from models.ptv2_official import PointTransformerV2Seg
 
 
 def parse_args():
@@ -101,15 +102,39 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=tcfg["batch_size"], shuffle=False,
                             num_workers=tcfg.get("num_workers", 2), pin_memory=True)
 
-    # Model
-    model = PointTransformerSeg(
-        input_dim=int(mcfg["input_dim"]),       # 6
-        hidden_dim=mcfg["hidden_dim"],           # 128
-        num_layers=mcfg["num_layers"],           # 4
-        num_heads=mcfg["num_heads"],             # 4
-        num_parts=mcfg["num_parts"],             # 50
-        dropout=float(mcfg.get("dropout", 0.1)),
-    ).to(device)
+    # Model — V1 or V2 official
+    model_type = mcfg.get("model_type", "ptv1")
+    if model_type == "ptv2_official":
+        print("[Setup] Using Official PTv2 (Gofinge)")
+        model = PointTransformerV2Seg(
+            in_channels=int(mcfg["in_channels"]),
+            num_classes=int(mcfg["num_classes"]),
+            num_shape_classes=int(mcfg.get("num_shape_classes", 0)),
+            patch_embed_channels=int(mcfg.get("patch_embed_channels", 48)),
+            patch_embed_groups=int(mcfg.get("patch_embed_groups", 6)),
+            enc_depths=list(mcfg.get("enc_depths", [2, 2, 6, 2])),
+            enc_channels=list(mcfg.get("enc_channels", [96, 192, 384, 512])),
+            enc_groups=list(mcfg.get("enc_groups", [12, 24, 48, 64])),
+            enc_neighbours=list(mcfg.get("enc_neighbours", [16, 16, 16, 16])),
+            dec_depths=list(mcfg.get("dec_depths", [1, 1, 1, 1])),
+            dec_channels=list(mcfg.get("dec_channels", [48, 96, 192, 384])),
+            dec_groups=list(mcfg.get("dec_groups", [6, 12, 24, 48])),
+            dec_neighbours=list(mcfg.get("dec_neighbours", [16, 16, 16, 16])),
+            grid_sizes=list(mcfg.get("grid_sizes", [0.06, 0.12, 0.24, 0.48])),
+            pe_multiplier=bool(mcfg.get("pe_multiplier", False)),
+            pe_bias=bool(mcfg.get("pe_bias", True)),
+            drop_path_rate=float(mcfg.get("drop_path_rate", 0.1)),
+        ).to(device)
+    else:
+        model = PointTransformerSeg(
+            input_dim=int(mcfg["input_dim"]),
+            hidden_dim=mcfg["hidden_dim"],
+            num_layers=mcfg["num_layers"],
+            num_heads=mcfg["num_heads"],
+            num_parts=mcfg["num_parts"],
+            dropout=float(mcfg.get("dropout", 0.1)),
+            num_shape_classes=int(mcfg.get("num_shape_classes", 0)),
+        ).to(device)
     print(f"Model: {sum(p.numel() for p in model.parameters()):,} params")
 
     criterion = SegmentationLoss(ignore_index=int(cfg.get("loss", {}).get("ignore_index", -1)))
@@ -144,7 +169,10 @@ def main():
                 feat = batch["feat"].to(device)
                 lbl = batch["labels"].to(device)
 
-                loss = criterion(model(coord, feat=feat), lbl)
+                cls_token = torch.tensor(
+                    [train_ds.categories.index(c) for c in batch["category_name"]],
+                    device=device, dtype=torch.long)
+                loss = criterion(model(coord, feat=feat, cls_token=cls_token), lbl)
                 loss.backward()
                 train_losses.append(loss.item())
                 opt.step()
@@ -165,7 +193,10 @@ def main():
                     lbl = batch["labels"].to(device)
                     cat_idx = [train_ds.categories.index(c) for c in batch["category_name"]]
 
-                    logits = model(coord, feat=feat)
+                    cls_token = torch.tensor(
+                        [train_ds.categories.index(c) for c in batch["category_name"]],
+                        device=device, dtype=torch.long)
+                    logits = model(coord, feat=feat, cls_token=cls_token)
                     loss = criterion(logits, lbl)
                     val_losses.append(loss.item())
                     all_preds.append(logits)

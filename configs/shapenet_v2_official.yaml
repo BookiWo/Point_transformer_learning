@@ -1,0 +1,49 @@
+# Official Point Transformer V2 — ShapeNet Part Baseline
+#
+# Model from Gofinge/PointTransformerV2 (official implementation).
+# cls_token=CTrue (matches PTv1 partseg protocol).
+
+experiment:
+  name: exp_shapenet_v2_official
+  output_dir: experiments/exp_shapenet_v2_official
+
+dataset:
+  processed_root: datasets/processed/shapenet_part_clean
+  num_points: 2048
+  dataset_type: shapenet_part
+
+model:
+  model_type: ptv2_official
+  in_channels: 6
+  num_classes: 50
+  num_shape_classes: 16  # cls_token: 0=off, 16=ShapeNet Part
+  # Official v2m2 defaults
+  patch_embed_channels: 48
+  patch_embed_groups: 6
+  enc_depths: [2, 2, 6, 2]
+  enc_channels: [96, 192, 384, 512]
+  enc_groups: [12, 24, 48, 64]
+  enc_neighbours: [16, 16, 16, 16]
+  dec_depths: [1, 1, 1, 1]
+  dec_channels: [48, 96, 192, 384]
+  dec_groups: [6, 12, 24, 48]
+  dec_neighbours: [16, 16, 16, 16]
+  grid_sizes: [0.06, 0.12, 0.24, 0.48]
+  pe_multiplier: false
+  pe_bias: true
+  drop_path_rate: 0.1
+
+training:
+  batch_size: 8
+  num_workers: 4
+  epochs: 200
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 200
+  save_every: 10
+  grad_accum: 2
+
+loss:
+  ignore_index: -1
