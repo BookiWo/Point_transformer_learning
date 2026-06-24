@@ -1,0 +1,54 @@
+# Point Transformer V3 — ShapeNet Part Baseline (Official Params)
+
+experiment:
+  name: exp_shapenet_v3
+  output_dir: experiments/exp_shapenet_v3
+
+dataset:
+  processed_root: datasets/processed/shapenet_part_clean
+  num_points: 2048
+  dataset_type: shapenet_part
+
+model:
+  model_type: ptv3
+  in_channels: 6
+  num_parts: 50
+  grid_size: 0.05
+
+  # Official PTv3 encoder
+  stride: [2, 2, 2, 2]
+  enc_depths: [2, 2, 2, 6, 2]
+  enc_channels: [32, 64, 128, 256, 512]
+  enc_num_head: [2, 4, 8, 16, 32]
+  enc_patch_size: [1024, 1024, 1024, 1024, 1024]
+
+  # Official PTv3 decoder
+  dec_depths: [2, 2, 2, 2]
+  dec_channels: [64, 64, 128, 256]
+  dec_num_head: [4, 4, 8, 16]
+  dec_patch_size: [1024, 1024, 1024, 1024]
+
+  mlp_ratio: 4.0
+  attn_drop: 0.0
+  proj_drop: 0.1
+  drop_path: 0.3
+  enable_rpe: false
+
+  # Serialization
+  order: ["z", "z-trans"]
+  shuffle_orders: true
+
+training:
+  batch_size: 4
+  num_workers: 4
+  epochs: 200
+  lr: 0.001
+  weight_decay: 0.0001
+  seed: 42
+  device: auto
+  log_interval: 200
+  save_every: 10
+  grad_accum: 4
+
+loss:
+  ignore_index: -1
