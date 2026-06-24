@@ -87,9 +87,11 @@ def _flat_knn(neighbours: int, coord: torch.Tensor, offset: torch.Tensor):
         start = 0 if b == 0 else offset[b - 1].item()
         end = offset[b].item()
         if end - start <= neighbours:
-            # fewer points than k → repeat last
-            idx = torch.arange(start, end, device=coord.device)
-            reference_index[start:end, :] = idx.unsqueeze(0).expand(end - start, neighbours).contiguous()
+            # fewer points than k → pad with last index
+            idx = torch.arange(start, end, device=coord.device)  # (n,)
+            # repeat last element to fill neighbours
+            padded = torch.cat([idx, idx[-1].repeat(neighbours - idx.shape[0])])
+            reference_index[start:end, :] = padded.unsqueeze(0).expand(end - start, neighbours).contiguous()
             continue
 
         pts = coord[start:end]  # (n_b, 3)
