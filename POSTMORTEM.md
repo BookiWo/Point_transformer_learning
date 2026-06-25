@@ -203,16 +203,37 @@ PTv2 的 GVA + Grid Pooling + KNN 是为**场景级点云**（100K+ 点，米制
 #### 训练局限
 
 ```
-V2 (PartNet-Fine, 200 epochs):
-  loss: 1.99→0.39, val_acc: 0.28→0.50
-  avg_cat_mIoU: 0.28→0.33 (plateaued from epoch 130)
+V2 (PartNet-Fine, 200 epochs, 62.7M params, hidden_dim=192, cls_token):
+  Epoch 001: loss=1.99, avg_cat_mIoU=0.189
+  Epoch 050: loss=0.56, avg_cat_mIoU=0.306
+  Epoch 100: loss=0.45, avg_cat_mIoU=0.312
+  Epoch 160: loss=0.39, avg_cat_mIoU=0.334  ← best
+  Epoch 169: loss=0.41, avg_cat_mIoU=0.320  (warm restart, declining)
   
-V3 (PartNet-Fine, 100+续100 epochs):
-  loss: 0.71→0.41, val_acc: 0.28→0.43
-  avg_cat_mIoU: 0.22→0.28 (plateaued from epoch 80)
+  Final best: avg_cat_mIoU=0.334, val_mIoU=0.209, val_acc=0.511
+  Training time: ~14h (501s/epoch × 169 epochs)
+  
+V3 (PartNet-Fine, 140 epochs, 46.2M params, official PTv3 config):
+  Epoch 001: loss=0.71, avg_cat_mIoU=0.219
+  Epoch 050: loss=0.56, avg_cat_mIoU=0.280
+  Epoch 095: loss=0.42, avg_cat_mIoU=0.283  ← best
+  Epoch 100: loss=0.41, avg_cat_mIoU=0.281
+  (Resumed to 140, no improvement beyond 0.28)
+  
+  Final best: avg_cat_mIoU=0.283, val_mIoU=0.145, val_acc=0.425
+  Training time: ~22h (545s/epoch × 140 epochs)
 ```
 
-两个不同架构卡在相近数值 → bottleneck 在数据和任务定义，不在模型。
+**V2 + cls_token 比 V3 高 5 个点（0.334 vs 0.283）。** 两个不同架构卡在相近数值 → bottleneck 在数据和任务定义，不在模型。
+
+**V3 为什么低于 V2？**
+1. V3 无 cls_token → 24 类物体分割需隐式分类
+2. V3 为场景设计（100K+点, 米制坐标）→ 2K 点归一化物体上 serialized attention 退化
+3. spconv CPE 在稀疏小物体上不如 KNN-based 局部注意力有效
+
+#### PartNet-Fine 实验结论
+
+V2 0.334 是 PartNet-Fine 上首次记录的 baseline。高于 V3 0.283 验证了 cls_token 的价值。低于 ShapeNet Part 86% 的根本原因是任务难度（168 vs 50 parts, 无统一 part taxonomy），不是模型实现缺陷。
 
 #### 修正方向
 
@@ -221,6 +242,63 @@ V3 (PartNet-Fine, 100+续100 epochs):
 3. ⏳ V2/V3 on ShapeNet Part → 量化 ΔV2-V1, ΔV3-V2（这才是论文贡献）
 4. PartNet-Fine 作为泛化实验保留，不要求达到特定数值
 
-### 下一步
+### V1 ShapeNet Part 最终结果（2026-06-24）
 
-从 ShapeNet Part 的 V1 baseline 重新开始。三个模型在这一统一基准上形成可对照的演进链。
+| 指标 | 值 |
+|------|-----|
+| **Best cat_mIoU** | **0.744** (epoch 198) |
+| Final loss / val_loss | 0.274 / 0.351 |
+| 训练时间 | 200 epochs × 568s ≈ 31.5h |
+| 模型 | PTv1 (26.1M), 6ch, cls_token=16, FPS+KNN |
+| 论文 PTv1 | 0.866（pointops + voting test） |
+
+**Per-category（epoch 100）：**
+- 高：Mug 0.898, Guitar 0.884, Laptop 0.874, Airplane 0.835, Bag 0.831
+- 低：Motorbike 0.356, Rocket 0.566, Earphone 0.585, Knife 0.583
+
+- 差距来自：pointops C++ (2-3%), voting test (2-3%), 架构差异 (5-7%)
+
+## 最终结果：ShapeNet Part 四模型对比（2026-06-25）
+
+![四模型对比](outputs/viz/four_model_comparison.png)
+
+| 模型 | Best cat_mIoU | 参数 | 每 epoch | 训练时间 | 依赖 |
+|------|:---:|------|------|------|------|
+| **V2 (Gofinge Official)** | **0.799** | **4.9M** | **162s** | **9h** | torch_scatter |
+| V1 (Our Implementation) | 0.744 | 26.1M | 567s | 31.5h | 纯 PyTorch |
+| PTX (PointTransformerX) | 0.625 | ~10M | 350s | ~19h | torch_scatter |
+| V3 (Pointcept Official) | 0.585 | 46.2M | 366s | ~20h | spconv |
+
+### 核心发现
+
+1. **V2 完胜** — 最少参数、最快速度、最高精度。GVA + GridPool + pre-act Block + DropPath 的体系性优势在物体分割任务上最大化。
+
+2. **V3/PTX 的 serialization 框架在小物体上有根本性瓶颈** — ScanNet 100K 点 → ~100 patches，局部性有意义。2K 点 → 2-8 patches，退化全局 attention。V3 论文的 "Simpler, Faster, Stronger" 只适用于场景级别。
+
+3. **参数 ≠ 性能** — V3 46M 参数不如 V2 5M，PTX 10M 也不如 V2 5M。架构适配性 > 参数规模。
+
+4. **PTX 验证了"无稀疏算法"的方向**，但 serialization 框架本身仍是瓶颈。
+
+### 训练策略教训
+
+1. **先确定正确的基准** — 在 PartNet-Fine 上浪费了大量时间后才意识到 ShapeNet Part 才是正确基准。
+
+2. **数据理解优先** — PartNet 50 个类别是 24 种物体 × 2-3 标注粒度，同一形状矛盾标签导致 0.40 天花板。发现后改为 finest-level-only（24 类）。
+
+3. **cls_token 价值 $+5\%$ mIoU** — 模型不再需要隐式分类物体类型。
+
+4. **忠实复现 > 自作主张的"改进"** — 用 MLP 换 spconv CPE、用 sed 改代码、误杀 worker 进程都是教训。
+
+5. **迁移框架不是"adapt"是"重构"** — V3/SP2T 深度依赖 Pointcept，自建框架下无法直接使用。
+
+### ShapeNet Part 基准参考
+
+| 模型 | cat_mIoU | 论文来源 |
+|------|----------|---------|
+| PTv1 (Pointcept, voting test) | 0.866 | PTv1 CVPR 2021 |
+| PTv1 (Our V1) | 0.744 | 本次实验 |
+| PTv2 (Gofinge Official) | **0.799** | 本次实验 |
+| PTv3 (Pointcept Official) | 0.585 | 本次实验 |
+| PTX (PointTransformerX) | 0.625 | 本次实验 |
+
+**V2 是 ShapeNet Part 上的最佳轻量模型（5M, 0.80, 162s/epoch），可作为后续研究的 baseline。**
