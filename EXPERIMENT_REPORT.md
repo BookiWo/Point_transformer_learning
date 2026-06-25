@@ -198,7 +198,9 @@ V3 框架基础上替换三个组件：
 
 对应文件：[`training_dashboard.png`](outputs/viz/autodl_rtx5090/training_dashboard.png)、[`training_comparison.png`](outputs/viz/v2_report/training_comparison.png)、[`V2_TRAINING_REPORT.md`](outputs/viz/v2_report/V2_TRAINING_REPORT.md)
 
-![Phase 1 结果](outputs/viz/phase1_old_shapenet.png)
+![Phase 1 柱状图](outputs/viz/phase1_old_shapenet.png)
+
+![Phase 1 V2 训练曲线](outputs/viz/phase1_v2_curve.png)
 
 **阶段二（2026-06-20 ~ 06-22）：PartNet-Fine**
 
@@ -211,7 +213,9 @@ V3 框架基础上替换三个组件：
 
 **结果偏低原因**：168 parts 用 offset 累加 → 每样本只用到 2-21 个 part，其余 150+ 个通道全是负样本。V3 的 serialization 在 2K 点上退化（2 patches）。回归 ShapeNet Part 后验证。
 
-![Phase 2 结果](outputs/viz/phase2_partnet_fine.png)
+![Phase 2 柱状图](outputs/viz/phase2_partnet_fine.png)
+
+![Phase 2 V3 训练曲线](outputs/viz/phase2_v3_curve.png)
 
 **阶段三（2026-06-23 ~ 06-25）：ShapeNet Part 标准基准**
 
