@@ -182,36 +182,64 @@ V3 框架基础上替换三个组件：
 
 ## 五、训练实验总结
 
-### 5.1 实验矩阵
+### 5.1 完整实验矩阵（三阶段，按时间顺序）
 
-| 实验 | 数据集 | 模型 | Epochs | 结果 |
-|------|--------|------|--------|------|
-| A | PartNet-Fine | V2 old + cls_token | 200 | 0.334 |
-| B | PartNet-Fine | V3 official | 140 | 0.283 |
-| C | ShapeNet Part | **V1** | 200 | **0.744** |
-| D | ShapeNet Part | **V2 official** | 200 | **0.799** |
-| E | ShapeNet Part | **V3 official** | 200 | **0.585** |
-| F | ShapeNet Part | **PTX** | 200 | **0.625** |
+**阶段一（2026-06-07 ~ 06-14）：旧 ShapeNet Part**
+
+数据：本地 HDF5（`datasets/raw/shapeNet/hdf5_data`）。预处理错误——`3ch xyz`（无 normal）、`unit-sphere` 归一化（非 centering）、`本地 label remap 0..K-1`（非全局 pid 0-49）、**无 cls_token**。
+
+| 实验 | 模型 | hidden/layers | 参数 | Epochs | val_mIoU | 配置 |
+|------|------|--------------|------|--------|----------|------|
+| 1 | **V1** | 256/8 | ~110M | 80 | **0.490** | partnet_pt_baseline.yaml |
+| 2 | **V2（自实现旧版）** | 128/4 | 26.1M | 80 | **0.468** | partnet_pt_v2_baseline.yaml |
+| 3 | **V2（自实现旧版）** | 256/8 | 208.6M | 80 | **0.476** | partnet_pt_v2_autodl.yaml |
+
+**V2 低于 V1 的原因**：V2 自实现架构有误——dot-product GVA（非官方 MLP weight-encoding GVA）、LayerNorm（非 PointBatchNorm）、双残差（非 pre-activation）。在错误数据上，V1 的 Vector Attention 反而更稳定。
+
+对应文件：[`training_dashboard.png`](outputs/viz/autodl_rtx5090/training_dashboard.png)、[`training_comparison.png`](outputs/viz/v2_report/training_comparison.png)、[`V2_TRAINING_REPORT.md`](outputs/viz/v2_report/V2_TRAINING_REPORT.md)
+
+**阶段二（2026-06-20 ~ 06-22）：PartNet-Fine**
+
+数据：24 类、168 parts（offset 累加全局映射，无 category2part 约束）。标签矛盾已通过 finest-level-only 过滤消除。
+
+| 实验 | 模型 | 参数 | Epochs | avg_cat_mIoU | 配置 |
+|------|------|------|--------|-------------|------|
+| 4 | V2 old + cls_token | 62.7M | 169 | 0.334 | partnet_pt_v2_unified.yaml |
+| 5 | V3 official（patch_size=1024） | 46.2M | 140 | 0.283 | partnet_pt_v3_unified.yaml |
+
+**结果偏低原因**：168 parts 用 offset 累加 → 每样本只用到 2-21 个 part，其余 150+ 个通道全是负样本。V3 的 serialization 在 2K 点上退化（2 patches）。回归 ShapeNet Part 后验证。
+
+**阶段三（2026-06-23 ~ 06-25）：ShapeNet Part 标准基准**
+
+数据：官方 `shapenetcore_partanno_segmentation_benchmark_v0_normal`，6ch（coord+normal）、centering、全局 pid 0-49、cls_token=16。
+
+| 实验 | 模型 | 来源 | 参数 | Epochs | cat_mIoU | 训练时间 | 每 epoch | 配置 |
+|------|------|------|------|--------|----------|---------|---------|------|
+| 6 | **V1** | 自实现 | 26.1M | 200 | **0.744** | 31.5h | 567s | shapenet_v1_baseline.yaml |
+| 7 | **V2 Official** | Gofinge | 4.9M | 200 | **0.799** | 9h | 162s | shapenet_v2_official.yaml |
+| 8 | **V3 Official** | Pointcept | 46.2M | 200 | **0.585** | ~20h | 366s | shapenet_v3_official.yaml |
+| 9 | **PTX** | 论文实现 | ~10M | 200 | **0.625** | ~19h | 350s | shapenet_ptx.yaml |
+
+**阶段三为最终结果。阶段一和阶段二是探索过程——其数据不能作为正式结论，但其教训（预处理标准、架构验证、数据理解）是本次实验最有价值的部分。**
 
 ### 5.2 最终对比
 
 ![四模型对比](outputs/viz/four_model_comparison.png)
 
-| 模型 | cat_mIoU | 参数 | 每 epoch | 训练时间 | 依赖 | 论文来源 |
-|------|:---:|------|------|------|------|---------|
-| **V2 Official** | **0.799** | **4.9M** | **162s** | **9h** | torch_scatter | Gofinge |
-| V1 | 0.744 | 26.1M | 567s | 31.5h | 纯 PyTorch | 自实现 |
-| PTX | 0.625 | ~10M | 350s | ~19h | torch_scatter | 论文实现 |
-| V3 | 0.585 | 46.2M | 366s | ~20h | spconv | Pointcept |
-| SP2T | — | — | — | — | — | 未跑 |
+| 模型 | cat_mIoU | 参数 | 每 epoch | 依赖 | 来源 |
+|------|:---:|------|------|------|------|
+| **V2 Official** | **0.799** | **4.9M** | **162s** | torch_scatter | Gofinge |
+| V1 | 0.744 | 26.1M | 567s | 纯 PyTorch | 自实现 |
+| PTX | 0.625 | ~10M | 350s | torch_scatter | 论文实现 |
+| V3 | 0.585 | 46.2M | 366s | spconv | Pointcept |
 
-### 5.3 论文对照
+### 5.3 与论文对照
 
-| 模型 | 论文 mIoU | 我们 | Δ |
-|------|:---:|:---:|:---:|
-| PTv1 (CVPR 2021) | 0.866 | 0.744 | -12% |
-| PTv2 | 无论文结果（未测试 ShapeNet Part） | **0.799** | — |
-| PTv3 | 无论文结果 | 0.585 | — |
+| 模型 | 论文 mIoU | 实验值 | Δ | 差距来源 |
+|------|:---:|:---:|:---:|------|
+| PTv1 | 0.866 | 0.744 | -12% | pointops C++、voting test、架构细节（planes vs hidden_dim） |
+| PTv2 | 无论文结果 | **0.799** | — | 论文未测试 ShapeNet Part |
+| PTv3 | 无论文结果 | 0.585 | — | 架构不适配物体分割 |
 
 ---
 
