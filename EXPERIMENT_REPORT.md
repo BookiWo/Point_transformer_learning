@@ -202,20 +202,70 @@ V3 框架基础上替换三个组件：
 
 ![Phase 1 V2 训练曲线](outputs/viz/phase1_v2_curve.png)
 
-**阶段二（2026-06-20 ~ 06-22）：PartNet-Fine**
+**阶段二（2026-06-20 ~ 06-22）：PartNet-Fine — 正确的数据修正，错误的基准选择**
 
-数据：24 类、168 parts（offset 累加全局映射，无 category2part 约束）。标签矛盾已通过 finest-level-only 过滤消除。
+数据：24 类、168 parts（offset 累加全局映射，无 category2part 约束）。标签矛盾已通过 finest-level-only 过滤消除（50→24 类），但标签体系本身的问题仍未解决。
 
-| 实验 | 模型 | 参数 | Epochs | avg_cat_mIoU | 配置 |
-|------|------|------|--------|-------------|------|
-| 4 | V2 old + cls_token | 62.7M | 169 | 0.334 | partnet_pt_v2_unified.yaml |
-| 5 | V3 official（patch_size=1024） | 46.2M | 140 | 0.283 | partnet_pt_v3_unified.yaml |
-
-**结果偏低原因**：168 parts 用 offset 累加 → 每样本只用到 2-21 个 part，其余 150+ 个通道全是负样本。V3 的 serialization 在 2K 点上退化（2 patches）。回归 ShapeNet Part 后验证。
+| 实验 | 模型 | 参数 | Epochs | val_mIoU (global) | avg_cat_mIoU | 配置 |
+|------|------|------|--------|:---:|:---:|------|
+| 4 | V2 old + cls_token | 62.7M | 169 | 0.209 | **0.334** | partnet_pt_v2_unified.yaml |
+| 5 | V3 official (p1024) | 46.2M | 140 | 0.145 | **0.283** | partnet_pt_v3_unified.yaml |
 
 ![Phase 2 柱状图](outputs/viz/phase2_partnet_fine.png)
 
 ![Phase 2 V3 训练曲线](outputs/viz/phase2_v3_curve.png)
+
+**深层问题分析：**
+
+**1. 标签体系：offset 累加 → 168 个"伪全局类"**
+
+PartNet-Fine 的 24 个类别各自定义了独立的本地标签空间（0..K_i-1）。为了联合训练，我们用 offset 累加将它们映射到全局空间：
+
+```
+Bag-1 (4 parts)  → global [0, 3]
+Bed-3 (15 parts) → global [4, 18]
+Chair-3 (21 parts) → global [19, 39]
+...24 个类别累加 → 168 个全局 ID
+```
+
+这与 ShapeNet Part 的根本不同：ShapeNet Part 的 50 个 part 是**预定义的统一全局标签**（chair seat 永远是 ID 13），而我们的 168 个 ID 是**每个类别独立定义的本地标签的机械累加**——Chair-3 的 "座椅面" 和 Table-3 的 "桌面" 虽然几何相似，但在 168 类空间中被分配了不同 ID且无任何语义关联。
+
+**2. 梯度稀释：每样本 150+ 个无效通道**
+
+V3 训练日志中的关键数据揭示了问题核心：
+
+```
+val_mIoU (global):  0.145  ← 在 168 个全局类上计算的 mIoU
+avg_cat_mIoU:       0.283  ← 每类别独立计算 mIoU 后平均
+差距：              +0.138  ← 几乎翻倍
+```
+
+`val_mIoU=0.145` 意味着模型在 168 个类别的 softmax 中，每个 Chair 点不仅要激活 chair parts（2-21 个通道），还要同时**抑制 150+ 个不相关的 part 通道**。每步梯度中，~90% 的类别维度上的信号都是纯噪声（来自不相关类别的 logit 抑制）。分类头的 150 个无用通道的梯度淹没了真正需要的 2-21 个通道。
+
+`avg_cat_mIoU=0.283` 更接近真实分割能力——它先按类别把 logits 裁剪到该类所属的 part 范围，再计算 mIoU。这是我们在 V2 训练脚本中加入的修复，但无法解决训练时的梯度稀释问题。
+
+**3. 为什么 V2 (0.334) 高于 V3 (0.283)**
+
+| | V2 (PartNet-Fine) | V3 (PartNet-Fine) |
+|---|---|---|
+| cls_token | ✅ 有（bottleneck 注入） | ❌ 无 |
+| 参数量 | 62.7M（过参数化） | 46.2M |
+| 注意力 | KNN（局部） | Serialized（2 patches，退化） |
+| 性能优势 | cls_token 帮模型区分物体类型 | 无 cls_token，隐式分类 + 分割叠加 |
+
+cls_token 在 168 类场景下尤其关键——模型在用 cls_token 知道"这是椅子"后，至少可以安全地抑制 147 个不相关的 part 通道。V3 没有这个信号，必须在 168 维空间中同时完成物体识别和部件分割。
+
+**4. 为什么 Phase 2 必须被放弃**
+
+| 问题 | 严重性 | 可修复性 |
+|------|:---:|:---:|
+| 168 类无全局 part 体系 | 致命 | 需要 PartNet taxonomy 重新映射 |
+| 梯度稀释（90% 通道是噪声） | 致命 | category2part 约束仅治标 |
+| 无论文基准可对照 | 致命 | — |
+| V3 无 cls_token | 可修 | 已加入 V2 |
+| V3 patch_size 过大 | 可修 | 已在 Phase 3 调整 |
+
+前三个问题无法在项目时间内解决——PartNet-Fine 没有公开的 SOTA 基准、没有统一的 part taxonomy、168 类的稀疏性无法简单克服。继续在这个基准上投入时间是边际收益递减。回归 ShapeNet Part（16 类 × 50 全局 part，有 0.866 论文基准）是正确的决策。
 
 **阶段三（2026-06-23 ~ 06-25）：ShapeNet Part 标准基准**
 
