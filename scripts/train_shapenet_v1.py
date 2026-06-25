@@ -27,6 +27,7 @@ from losses.segmentation_loss import SegmentationLoss
 from models.point_transformer_seg import PointTransformerSeg
 from models.ptv2_official import PointTransformerV2Seg
 from models.point_transformer_v3_seg import PointTransformerV3Seg
+from models.ptx_seg import PointTransformerXSeg
 
 
 def parse_args():
@@ -146,6 +147,30 @@ def main():
             drop_path=float(mcfg.get("drop_path", 0.3)),
             enable_rpe=bool(mcfg.get("enable_rpe", False)),
             grid_size=float(mcfg.get("grid_size", 0.05)),
+            order=mcfg.get("order", ("z", "z-trans")),
+            shuffle_orders=bool(mcfg.get("shuffle_orders", True)),
+        ).to(device)
+    elif model_type == "ptx":
+        print("[Setup] Using Point Transformer X (PTX)")
+        model = PointTransformerXSeg(
+            in_channels=int(mcfg["in_channels"]),
+            num_classes=int(mcfg["num_parts"]),
+            grid_size=float(mcfg.get("grid_size", 0.05)),
+            enc_channels=list(mcfg.get("enc_channels", [32, 64, 128, 256, 512])),
+            enc_depths=list(mcfg.get("enc_depths", [2, 2, 2, 6, 2])),
+            enc_num_head=list(mcfg.get("enc_num_head", [2, 4, 8, 16, 32])),
+            enc_patch_size=list(mcfg.get("enc_patch_size", [1024]*5)),
+            dec_depths=list(mcfg.get("dec_depths", [2, 2, 2, 2])),
+            dec_channels=list(mcfg.get("dec_channels", [64, 64, 128, 256])),
+            dec_num_head=list(mcfg.get("dec_num_head", [4, 4, 8, 16])),
+            dec_patch_size=list(mcfg.get("dec_patch_size", [1024]*4)),
+            stride=list(mcfg.get("stride", [2, 2, 2, 2])),
+            mlp_ratio=float(mcfg.get("mlp_ratio", 2.0)),
+            qkv_bias=bool(mcfg.get("qkv_bias", True)),
+            attn_drop=float(mcfg.get("attn_drop", 0.0)),
+            proj_drop=float(mcfg.get("proj_drop", 0.1)),
+            drop_path=float(mcfg.get("drop_path", 0.1)),
+            pre_norm=bool(mcfg.get("pre_norm", True)),
             order=mcfg.get("order", ("z", "z-trans")),
             shuffle_orders=bool(mcfg.get("shuffle_orders", True)),
         ).to(device)

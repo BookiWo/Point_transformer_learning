@@ -24,6 +24,7 @@ model:
   num_heads: 4           # 128 / 4 = 32 dim per head
   num_parts: 50          # global part classes
   dropout: 0.1
+  num_shape_classes: 16  # official PTv1 partseg cls_token
 
 training:
   batch_size: 16

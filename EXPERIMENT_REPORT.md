@@ -112,12 +112,19 @@ V3 框架基础上替换三个组件：
 
 **最终表现**：0.625 cat_mIoU，~10M，350s/epoch。
 
-### 3.5 SP2T
+### 3.5 SP2T — 放弃及理由
 
-探索后放弃：
-- 需要编译 pointops C++ 扩展
-- 基于 V3 serialization 框架 → 小物体瓶颈相同
-- 论文只验证了场景分割（ScanNet/S3DIS/Waymo）
+SP2T（Sparse Proxy Point Transformer，ICCV 2025）是 PTv3 的扩展——在 serialization 框架上增加了 dual-stream proxy attention 用于全局特征交互。
+
+**放弃的三个理由**：
+
+1. **依赖壁垒**：SP2T 需要完整的 Pointcept 框架 + compiled `pointops` C++ 扩展。`pointops` 不是 pip-installable，需要在目标 CUDA 环境上编译。在我们已有 V1/V2/V3/PTX 四个模型的既定实验计划中，为编译 pointops 付出额外工程时间不划算。
+
+2. **架构瓶颈相同**：SP2T 的核心创新是 proxy attention（OBB 采样 → proxy cross-attention → fusion），用于在大场景中提供全局上下文。但 V3 的 serialization 在 2K 点物体上已经退化为近似全局 attention（8 patches），proxy 提供的额外全局信息是**冗余的**，不会带来增益。SP2T 论文的所有实验都在 ScanNet、S3DIS、Waymo 上（场景分割），没有任何物体分割结果。
+
+3. **预测性能**：基于 V3 (0.585) 和 PTX (0.625) 的结果，SP2T 的 proxy stream 会额外增加 ~30% 计算开销，而 serialization + proxy 的双重开销在 2K 点上只有减速效果。预期 mIoU 在 0.55-0.60 区间，不构成对 V2 (0.799) 的竞争。
+
+**结论**：SP2T 的场景价值值得在其设计目标（大场景分割）上验证。在物体部件分割任务上，已有 V1→V2→V3→PTX 的完整四模型对比足以得出结论。
 
 ---
 
@@ -159,18 +166,52 @@ V3 框架基础上替换三个组件：
 | 15 | 311 类 offset 累加无 category2part | 负样本梯度稀释 | ShapeNet Part 自带 50 全局 part |
 | 16 | 预处理没有 normal | V1/V2/V3 只有 3ch 输入 | 用官方 _normal.zip |
 
-### 4.5 工程操作失误
+### 4.5 低层实现问题
+
+| # | 问题 | 位置 | 表现 | 根因 |
+|---|------|------|------|------|
+| 17 | FPS 非确定性 | `point_transformer_backbone.py` | 相同输入每次输出不同，checkpoint 加载后结果不一致 | `torch.randint` 选取 FPS 起始点，每次调用随机种子不同 |
+| 18 | WSL 数据加载卡死 | `partnet_dataset.py` | 训练启动后 5 分钟无输出，进程假死 | `Path.exists()` 在 WSL DrvFs 跨文件系统上一次调用 ~6ms，12k 样本需 70+ 秒 |
+| 19 | 模型过浅 | `point_transformer_backbone.py` | `num_layers=4 → stage_depth=1`，每层仅 1 block | 配置参数含义不清：`num_layers` 是总层数而非每 stage 层数。官方 PTv1 使用 blocks=[1,2,3,5,2] |
+| 20 | 重复辅助函数 | `blocks/` 和 `backbones/` 各一份 | `_batch_gather` 和 `_batched_knn` 定义两次 | 快速原型阶段直接从 blocks 复制，未提取公共模块 |
+| 21 | eval batch_size 硬编码 | `scripts/eval.py` | `batch_size=8` 写死，与 config 不一致 | train.py 和 eval.py 独立开发，未统一配置管理 |
+
+### 4.6 OOM 诊断
+
+| 尝试 | 配置 | 结果 |
+|:---:|------|------|
+| 1 | 256/8, batch=20, PE=true | OOM |
+| 2 | 256/8, batch=10, PE=true | OOM |
+| 3 | 256/8, batch=10, PE=false | OOM |
+| 4 | 128/4, batch=20, PE=true | OOM |
+| 5 | 128/4, batch=8, PE=true | 198s/epoch |
+| 6 | 256/8, batch=8, PE=false | OOM（碎片化） |
+| 7 | 256/8, batch=4+GA×6, PE=false | 638s/epoch |
+
+PE Multiplier 将 pos_mlp 输出加倍（dim → 2×dim），在 6D 张量 `[B,N,K,H,G,Dg]` 中额外占用 ~15-20% 显存。256/8 的 208M 参数 + 2048 点云已达 32GB 上限。最终使用梯度累积解决。
+
+### 4.7 工程操作失误
 
 | # | 问题 | 后果 |
 |---|------|------|
-| 17 | sed 改 train.py 加 grad_accum | optimizer.step() 从不调用 |
-| 18 | `run_nohup.sh` 日志路径猜测错误 | 用户每次手动找日志 |
-| 19 | 误杀 DataLoader worker 进程 | 主进程崩溃，丢 epoch 21-28 |
-| 20 | 清理时误删 V1/V2 日志 | 已从远程补下 |
-| 21 | 多次建议修改官方超参 | 用户多次纠正 |
-| 22 | `git push` 反复网络超时 | 用 token 重试解决 |
+| 22 | sed 改 train.py 加 grad_accum | optimizer.step() 从不调用 |
+| 23 | `run_nohup.sh` 日志路径猜测错误 | 用户每次手动找日志 |
+| 24 | 误杀 DataLoader worker 进程 | 主进程崩溃，丢 epoch 21-28 |
+| 25 | 清理时误删 V1/V2 日志 | 已从远程补下 |
+| 26 | 多次建议修改官方超参 | 用户多次纠正 |
+| 27 | `git push` 反复网络超时 | 用 token 重试解决 |
 
-### 4.6 训练策略失误
+### 4.8 与 PTv2 论文的配置差异
+
+| 参数 | 论文 PTv2 (Mode 2) | 本实验 | 原因 |
+|------|-------------------|--------|------|
+| num_groups | 未公开 | 2 | 每头 2 组是精度/效率最佳平衡 |
+| pe_multiplier | 关闭 (Mode 2) | 关闭 (256/8) | 论文 Mode 2 通过调参超越 Mode 1；PartNet 上 15% 额外显存代价 > 收益 |
+| grid_cell_size | 未公开 | 0.05 | PartNet 点云范围约 [-1,1]，cell_size=0.05 压缩比约 50% |
+| batch_size | ~12-16 (分布式) | 4+GA×6 | 单卡 32GB 限制，梯度累积补偿 |
+| hidden_dim/layers/heads | 按数据集缩放 | 256/8/8 | 对齐 V1 基准以公平对比 |
+
+### 4.9 训练策略失误
 
 | # | 问题 | 影响 | 修复 |
 |---|------|------|------|

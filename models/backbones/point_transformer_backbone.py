@@ -109,9 +109,11 @@ class TransitionUp(nn.Module):
 
 
 class PointTransformerBackbone(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, num_layers: int, num_heads: int, dropout: float) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int, num_layers: int, num_heads: int,
+                 dropout: float = 0.1, num_shape_classes: int = 0) -> None:
         super().__init__()
         stage_depth = max(1, num_layers // 4)
+        self.num_shape_classes = num_shape_classes
 
         self.input_proj = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -150,7 +152,15 @@ class PointTransformerBackbone(nn.Module):
         )
         self.output_norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, points: torch.Tensor, feat: torch.Tensor | None = None) -> torch.Tensor:
+        # cls_token embedding (official PTv1 partseg: injects one-hot category at bottleneck)
+        if num_shape_classes > 0:
+            self.cls_fc = nn.Sequential(
+                nn.Linear(num_shape_classes, hidden_dim * 8),
+                nn.ReLU(inplace=True),
+            )
+
+    def forward(self, points: torch.Tensor, feat: torch.Tensor | None = None,
+                cls_token: torch.Tensor | None = None) -> torch.Tensor:
         if feat is None:
             feat = points  # backward compatible: use points as features (3-ch)
         features = self.input_proj(feat)
@@ -172,6 +182,19 @@ class PointTransformerBackbone(nn.Module):
         points4, features4 = self.down3(points3, features3)
         for block in self.bottleneck_blocks:
             features4 = block(features4, points4)
+
+        # Inject cls_token at bottleneck (official PTv1 partseg: one-hot category → FC → add)
+        if cls_token is not None and self.num_shape_classes > 0:
+            # cls_token: (B,) category indices → one-hot (B, num_shape_classes)
+            one_hot = torch.zeros(cls_token.shape[0], self.num_shape_classes,
+                                  device=cls_token.device, dtype=features4.dtype)
+            one_hot.scatter_(1, cls_token.unsqueeze(1), 1.0)
+            cls_feat = self.cls_fc(one_hot)  # (B, hidden_dim*8)
+            batch_idx = torch.arange(features4.shape[0], device=features4.device)
+            # Add to each point's bottleneck feature
+            B_unique, N4 = features4.shape[0], features4.shape[1]
+            # features4 is (B, N4, C) — add per-batch cls_feat
+            features4 = features4 + cls_feat.unsqueeze(1)
 
         points3_up, features3_up = self.up3(points4, features4, skip3_points, skip3_features)
         for block in self.decoder3_blocks:
