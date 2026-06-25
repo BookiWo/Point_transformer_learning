@@ -237,6 +237,24 @@ V3 框架基础上替换三个组件：
 | ![V1](outputs/viz/phase3_v1_curve.png) | ![V2](outputs/viz/phase3_v2_official_curve.png) |
 | ![V3](outputs/viz/phase3_v3_curve.png) | ![PTX](outputs/viz/phase3_ptx_curve.png) |
 
+#### 收敛分析
+
+| 模型 | Epochs | Epoch 1 | Best | 95%收敛 | Plateau | 增长 |
+|------|--------|--------|------|---------|---------|:---:|
+| P1 V2 (128/4) | 80 | 0.024 | 0.420 (ep73) | ep57 | ep72 | 17× |
+| P2 V3 | 100 | 0.065 | 0.153 (ep80) | ep74 | ep71 | 2.4× |
+| P3 V1 | 200 | 0.341 | **0.744 (ep198)** | ep99 | ep74 | 2.2× |
+| P3 V2 | 200 | 0.455 | **0.799 (ep155)** | ep28 | ep41 | 1.8× |
+| P3 V3 | 200 | 0.369 | 0.585 (ep157) | ep73 | never | 1.6× |
+| P3 PTX | 200 | 0.421 | 0.625 (ep39) | ep20 | ep40 | 1.5× |
+
+**解读**：
+- **V2 收敛最快**：epoch 28 已达 95%，epoch 41 后 plateau。epoch 1 就达到 0.455，远超其他模型。
+- **V1 收敛最慢但持续上升**：epoch 198 才达到 best，200 epoch 内没有 plateau，说明还可以继续训。
+- **V3 从未 plateau**：serialization 在小物体上的不稳定性导致指标持续震荡，即使 warm restart 也无法收敛。
+- **PTX 过早收敛**：epoch 39 best，之后即使 lr 重置也无法进一步提升。
+- **Phase 1/2 收敛差**：数据预处理错误 + 架构问题 → 即使收敛到 0.42，也是错误的收敛。
+
 ### 5.2 最终对比
 
 ![综合对比](outputs/viz/complete_experiment_history.png)
