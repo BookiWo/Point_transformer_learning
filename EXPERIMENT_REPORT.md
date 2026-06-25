@@ -198,6 +198,8 @@ V3 框架基础上替换三个组件：
 
 对应文件：[`training_dashboard.png`](outputs/viz/autodl_rtx5090/training_dashboard.png)、[`training_comparison.png`](outputs/viz/v2_report/training_comparison.png)、[`V2_TRAINING_REPORT.md`](outputs/viz/v2_report/V2_TRAINING_REPORT.md)
 
+![Phase 1 结果](outputs/viz/phase1_old_shapenet.png)
+
 **阶段二（2026-06-20 ~ 06-22）：PartNet-Fine**
 
 数据：24 类、168 parts（offset 累加全局映射，无 category2part 约束）。标签矛盾已通过 finest-level-only 过滤消除。
@@ -208,6 +210,8 @@ V3 框架基础上替换三个组件：
 | 5 | V3 official（patch_size=1024） | 46.2M | 140 | 0.283 | partnet_pt_v3_unified.yaml |
 
 **结果偏低原因**：168 parts 用 offset 累加 → 每样本只用到 2-21 个 part，其余 150+ 个通道全是负样本。V3 的 serialization 在 2K 点上退化（2 patches）。回归 ShapeNet Part 后验证。
+
+![Phase 2 结果](outputs/viz/phase2_partnet_fine.png)
 
 **阶段三（2026-06-23 ~ 06-25）：ShapeNet Part 标准基准**
 
@@ -222,7 +226,16 @@ V3 框架基础上替换三个组件：
 
 **阶段三为最终结果。阶段一和阶段二是探索过程——其数据不能作为正式结论，但其教训（预处理标准、架构验证、数据理解）是本次实验最有价值的部分。**
 
+#### 阶段三各模型训练曲线
+
+| V1 | V2 Official |
+|---|---|
+| ![V1](outputs/viz/phase3_v1_curve.png) | ![V2](outputs/viz/phase3_v2_official_curve.png) |
+| ![V3](outputs/viz/phase3_v3_curve.png) | ![PTX](outputs/viz/phase3_ptx_curve.png) |
+
 ### 5.2 最终对比
+
+![综合对比](outputs/viz/complete_experiment_history.png)
 
 ![四模型对比](outputs/viz/four_model_comparison.png)
 
