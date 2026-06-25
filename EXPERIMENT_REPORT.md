@@ -228,32 +228,128 @@ V3 框架基础上替换三个组件：
 | 8 | **V3 Official** | Pointcept | 46.2M | 200 | **0.585** | ~20h | 366s | shapenet_v3_official.yaml |
 | 9 | **PTX** | 论文实现 | ~10M | 200 | **0.625** | ~19h | 350s | shapenet_ptx.yaml |
 
-**阶段三为最终结果。阶段一和阶段二是探索过程——其数据不能作为正式结论，但其教训（预处理标准、架构验证、数据理解）是本次实验最有价值的部分。**
+**阶段三为最终结果。**
 
-#### 阶段三各模型训练曲线
+---
 
-| V1 | V2 Official |
-|---|---|
-| ![V1](outputs/viz/phase3_v1_curve.png) | ![V2](outputs/viz/phase3_v2_official_curve.png) |
-| ![V3](outputs/viz/phase3_v3_curve.png) | ![PTX](outputs/viz/phase3_ptx_curve.png) |
+#### 实验 6：V1 on ShapeNet Part
 
-#### 收敛分析
+![V1](outputs/viz/phase3_v1_curve.png)
 
-| 模型 | Epochs | Epoch 1 | Best | 95%收敛 | Plateau | 增长 |
-|------|--------|--------|------|---------|---------|:---:|
-| P1 V2 (128/4) | 80 | 0.024 | 0.420 (ep73) | ep57 | ep72 | 17× |
-| P2 V3 | 100 | 0.065 | 0.153 (ep80) | ep74 | ep71 | 2.4× |
-| P3 V1 | 200 | 0.341 | **0.744 (ep198)** | ep99 | ep74 | 2.2× |
-| P3 V2 | 200 | 0.455 | **0.799 (ep155)** | ep28 | ep41 | 1.8× |
-| P3 V3 | 200 | 0.369 | 0.585 (ep157) | ep73 | never | 1.6× |
-| P3 PTX | 200 | 0.421 | 0.625 (ep39) | ep20 | ep40 | 1.5× |
+| 参数 | 值 | 参数 | 值 |
+|------|-----|------|-----|
+| 架构 | FPS + KNN + Vector Attention | 输入 | 6ch (coord + normal) |
+| hidden_dim | 128 | num_layers | 4 |
+| num_heads | 4 | num_shape_classes | 16 (cls_token) |
+| batch_size | 4 + GA=4 | optimizer | AdamW + CosineWarmRestart(T0=40) |
+| 参数 | 26.1M | 每 epoch | 567s |
 
-**解读**：
-- **V2 收敛最快**：epoch 28 已达 95%，epoch 41 后 plateau。epoch 1 就达到 0.455，远超其他模型。
-- **V1 收敛最慢但持续上升**：epoch 198 才达到 best，200 epoch 内没有 plateau，说明还可以继续训。
-- **V3 从未 plateau**：serialization 在小物体上的不稳定性导致指标持续震荡，即使 warm restart 也无法收敛。
-- **PTX 过早收敛**：epoch 39 best，之后即使 lr 重置也无法进一步提升。
-- **Phase 1/2 收敛差**：数据预处理错误 + 架构问题 → 即使收敛到 0.42，也是错误的收敛。
+**论文预期**：PTv1 在 ShapeNet Part 上 0.866（Pointcept 官方，pointops C++ + voting test + planes=[32,64,128,256,512]）。
+
+**实际结果**：0.744（epoch 198），差距 -12%。
+
+**收敛**：epoch 99 达 95% 收敛，从未 plateau——200 epoch 仍在上升。epoch 1 就已 0.341。
+
+**不达标原因**：
+1. KNN/FPS 使用 PyTorch 原生实现（非 pointops C++），约 -2~3%
+2. 无 voting test（8 视角投票），约 -2~3%
+3. 架构差异：我们的 hidden_dim=128 加倍方案 vs 官方的 planes=[32,64,128,256,512]
+4. 训练 200 epochs，无 multi-scale test-time augmentation
+
+**评价**：V1 是可靠的基线。差距主要来自优化（pointops）和测试方案（voting），非架构错误。
+
+---
+
+#### 实验 7：V2 Official on ShapeNet Part
+
+![V2](outputs/viz/phase3_v2_official_curve.png)
+
+| 参数 | 值 | 参数 | 值 |
+|------|-----|------|-----|
+| 架构 | GVA (MLP weight-encoding) + GridPool + Pre-act Block | 输入 | 6ch |
+| patch_embed | 48ch, depth=1 | enc/dec | [96,192,384,512] / [48,96,192,384] |
+| groups | [12,24,48,64] | neighbours | 16 |
+| grid_sizes | [0.06,0.12,0.24,0.48] | pe_multiplier/pe_bias | False / True |
+| 参数 | **4.9M** | 每 epoch | **162s** |
+| batch_size | 8 + GA=2 | drop_path_rate | 0.1 |
+
+**论文预期**：PTv2 论文未测试 ShapeNet Part——无官方数值。我们的 V1 0.744 作为内部基线。
+
+**实际结果**：**0.799（epoch 155），超越 V1 +5.5%。**
+
+**收敛**：epoch 28 达 95% 收敛，epoch 41 plateau。epoch 1 已达 0.455——比 V3 epoch 200 的 0.585 还高。收敛速度是所有模型中最快的。
+
+**超越原因**：
+1. GVA（MLP weight-encoding）比 V1 的 Vector Attention 更防过拟合
+2. GridPool 比 FPS 在小物体上更高效
+3. Pre-act Block + DropPath + PointBatchNorm 提供更好的正则化
+4. 参数仅 4.9M——效率远优于 V1 的 26.1M
+5. 官方 Gofinge 架构经过充分验证
+
+**评价**：**ShapeNet Part 上的最佳模型。** 最小、最快、最强。可作为轻量基线。
+
+---
+
+#### 实验 8：V3 Official on ShapeNet Part
+
+![V3](outputs/viz/phase3_v3_curve.png)
+
+| 参数 | 值 | 参数 | 值 |
+|------|-----|------|-----|
+| 架构 | Serialized Attention + spconv CPE | 输入 | 6ch |
+| enc_depths | [2,2,2,6,2] | enc_channels | [32,64,128,256,512] |
+| enc_num_head | [2,4,8,16,32] | patch_size | [256,256,256,128,128] (adjusted) |
+| mlp_ratio | 4.0 | drop_path | 0.3 |
+| 参数 | 46.2M | 每 epoch | 366s |
+| batch_size | 4 + GA=4 | enable_flash | False |
+
+**论文预期**：PTv3 论文未测试 ShapeNet Part。ScanNet 上 0.775，针对大场景。
+
+**实际结果**：0.585（epoch 157），**低于 V1 0.744 和 V2 0.799**。
+
+**收敛**：epoch 73 达 95% 收敛，**从未 plateau**——指标持续震荡，warm restart 也无法稳定。
+
+**不达标原因**：
+1. **核心矛盾**：V3 serialization 为大场景（100K+ 点, 250³ grid）设计。2K 点、40³ grid 下：
+   - 原始 patch_size=1024 → 仅 2 patches，退化全局 attention
+   - 调整为 256 → 8 patches，但 serialization 的排序+padding 开销仍占主导
+2. spconv CPE 在小物体稀疏 grid 上无效
+3. V3 无 cls_token——24/16 类物体分割需隐式分类
+4. 46.2M 参数对 2K 点严重过参数化
+
+**评价**：V3 的 "Simpler, Faster, Stronger" 只在场景分割成立。物体分割不是它的主场。
+
+---
+
+#### 实验 9：PTX on ShapeNet Part
+
+![PTX](outputs/viz/phase3_ptx_curve.png)
+
+| 参数 | 值 | 参数 | 值 |
+|------|-----|------|-----|
+| 架构 | V3 框架 + 3D-GS-RoPE + ReLU² FFN | 输入 | 6ch |
+| enc_depths | [2,2,2,6,2] | enc_channels | [32,64,128,256,512] |
+| mlp_ratio | 2.0 (ReLU²) | patch_size | [256,256,256,128,128] |
+| 参数 | ~10M | 每 epoch | 350s |
+| batch_size | 8 | 依赖 | torch_scatter (无 spconv) |
+
+**论文预期**：PTX 论文 ScanNet 0.765（vs V3 0.775），验证了"去 spconv"方向的可行性。
+
+**实际结果**：0.625（epoch 39），高于 V3 的 0.585，低于 V1 和 V2。
+
+**收敛**：epoch 20 达 95% 收敛，**epoch 39 后不再提升**——过早收敛是 PTX 最突出问题。epoch 1 0.421 起步高于 V3 0.369。
+
+**不达标原因**：
+1. 3D-GS-RoPE + ReLU² FFN 在 V3 基础上提升 +0.04（vs V3 的 0.585），但 serialization 框架仍是瓶颈
+2. 过早收敛说明 3D-GS-RoPE 的表达能力在 2K 点上已饱和
+3. 论文宣称的 52ms 推理是在 100K 点场景——2K 点上 serialization 固定开销占比过大
+4. 无 cls_token
+
+**评价**：PTX 验证了"无稀疏算法"方向，但 serialization 框架本身是小物体的瓶颈。真正的便携方案需要完全不同的框架设计。
+
+---
+
+### 5.2 最终对比
 
 ### 5.2 最终对比
 
