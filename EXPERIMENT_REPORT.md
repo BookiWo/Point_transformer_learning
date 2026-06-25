@@ -80,18 +80,25 @@ PartNet-Fine 的 311 类中每个样本只有 2-21 个有效通道，其余全�
 
 **最终表现**：0.744 cat_mIoU（论文 0.866，差距主要来自 pointops C++ + voting test）
 
-### 3.2 V2 — 从自实现到官方
+### 3.2 V2 — 从自实现到官方 Gofinge
 
 | 版本 | 问题 |
 |------|------|
-| **自实现 V2** | 架构与官方 Gofinge 完全不同（dot-product GVA vs MLP weight-encoding GVA, LayerNorm vs PointBatchNorm, 双残差 vs pre-activation） |
-| **官方 V2 (ptv2_official.py)** | 完整移植 Gofinge/PointTransformerV2，替换 pointops 为 PyTorch 原生实现 |
+| **自实现 V2** | 架构与官方 Gofinge 完全不同 |
+| **官方 V2 (ptv2_official.py)** | 移植 Gofinge，PyTorch 替换 pointops |
 
-官方 V2 关键组件：
-- **GroupedVectorAttention**：MLP `weight_encoding(relation_qk)` 回归注意力权重（非点积）
-- **Block**：pre-activation + PointBatchNorm + DropPath + 单层 Linear FFN
-- **GridPool**：voxel_grid + segment_csr
-- **UnpoolWithSkip**：map 后端 unpooling
+**移植来源**：`https://github.com/Gofinge/PointTransformerV2`，核心文件 `pcr/models/point_transformer2/point_transformer_v2m2_base.py`。
+
+| 官方组件 | 移植方式 |
+|----------|---------|
+| `GroupedVectorAttention` | 原样保留（MLP weight-encoding GVA） |
+| `Block` | 原样保留（pre-act + DropPath + PointBatchNorm） |
+| `GridPool` / `UnpoolWithSkip` | 原样保留 |
+| `pointops.knn_query` | → `_flat_knn`（PyTorch） |
+| `pointops.grouping` | → `_flat_grouping`（PyTorch） |
+| `voxel_grid`（torch_geometric） | → `_voxel_grid`（PyTorch 哈希） |
+
+**关键事实**：官方 Gofinge V2 仓库**没有 V2 的 ShapeNet Part 分割模型**。仓库的 `point_transformer_partseg.py` 是 PTv1 架构（FPS + KNN），V2 的 `pt-v2m2` 只有场景分割配置（ScanNet/S3DIS）。论文从未在物体部件分割上测试 V2。我们将 V2 的场景架构配上一个 50 类分割头，**首次在 ShapeNet Part 上报告了 PTv2 基准值**。
 
 **最终表现**：**0.799 cat_mIoU，4.9M 参数，162s/epoch**
 
